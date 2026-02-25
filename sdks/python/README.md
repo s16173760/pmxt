@@ -158,6 +158,20 @@ print(f"Available: ${balances[0].available}")
 - `get_execution_price(order_book, side, amount)` - Get execution price
 - `get_execution_price_detailed(order_book, side, amount)` - Get detailed execution info
 
+### Raw Price Mode
+
+Use `mode="raw"` to get source exchange prices without normalization.
+
+```python
+# Kalshi raw cents
+book = kalshi.fetch_order_book("KXBTC-100K-YES", mode="raw")
+print(book.bids[0].price)  # e.g. 55 instead of 0.55
+
+# Polymarket normalized default
+book = poly.fetch_order_book(outcome_id)
+print(book.bids[0].price)  # e.g. 0.55
+```
+
 ### Trading Methods (require authentication)
 
 - `create_order(params)` - Place a new order
