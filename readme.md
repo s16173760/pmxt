@@ -148,6 +148,8 @@ const warsh = fedEvent.markets.match('Kevin Warsh');
 console.log(`Price: ${warsh.yes?.price}`);
 ```
 
+Prices are normalized to `0.0-1.0` by default. To return raw exchange values, pass `{ mode: "raw" }` as the final argument to fetch methods (e.g., `fetchMarkets(params, { mode: "raw" })`).
+
 ## Trading
 pmxt supports unified trading across exchanges.
 

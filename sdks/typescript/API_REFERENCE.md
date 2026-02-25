@@ -28,6 +28,17 @@ console.log(markets[0].title);
 
 ---
 
+## Raw Mode
+
+Prices are normalized to `0.0-1.0` by default. To return raw exchange values, pass `{ mode: "raw" }` as the final argument to fetch methods.
+
+```typescript
+const markets = await poly.fetchMarkets({ query: "Trump" }, { mode: "raw" });
+const orderBook = await kalshi.fetchOrderBook("FED-25JAN", { mode: "raw" });
+```
+
+---
+
 ## Server Management
 
 The SDK provides global functions to manage the background sidecar server. This is useful for clearing state or

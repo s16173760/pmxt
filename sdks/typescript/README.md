@@ -136,7 +136,7 @@ For complete API documentation and examples, see:
 ## Important Notes
 
 - **Use `outcome.outcomeId`, not `market.marketId`** for deep-dive methods (fetchOHLCV, fetchOrderBook, fetchTrades)
-- **Prices are 0.0 to 1.0** (multiply by 100 for percentages)
+- **Prices are 0.0 to 1.0 by default** (multiply by 100 for percentages). Use `{ mode: 'raw' }` as the final argument to return raw exchange values.
 - **Timestamps are Unix milliseconds**
 - **Volumes are in USD**
 
