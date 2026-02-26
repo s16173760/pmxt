@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.17.9] - 2026-02-25
+
+### Fixed
+
+- **TypeScript SDK: Server startup race condition causes 401 Unauthorized**: After a version mismatch was detected, the `ServerManager` would kill the old server and delete the lock file, then call `waitForServer()`. Because the lock file was gone, `getRunningPort()` fell back to the default port 3847. If any other process (e.g. an unrelated local server) was already responding on that port, `waitForServer()` would return immediately with no lock file present, causing `getAccessToken()` to return `undefined` and all subsequent API requests to be sent without an auth token. Fixed by rewriting `waitForServer()` to read the lock file directly on each poll iteration and only return when a lock file is present *and* the server at that file's port passes a health check. This prevents falsely matching an unrelated server on the default port.
+
+## [2.17.8] - 2026-02-25
+
+### Fixed
+
+- **Python SDK `fetch_ohlcv` deserialization error**: Calling `fetch_ohlcv()` raised `ValueError: Multiple matches found when deserializing... with oneOf schemas: HistoryFilterParams, OHLCVParams` because the OpenAPI spec emitted `oneOf: [OHLCVParams, HistoryFilterParams]` for the `params` argument. Since both schemas are structurally identical in JSON (same four fields, differing only in `resolution` being optional vs. required), pydantic matched both branches and raised an exception. Fixed by removing the deprecated `HistoryFilterParams` union from `fetchOHLCV` in `BaseExchange.ts` and all exchange implementations, then regenerating the OpenAPI spec. The spec now emits only `OHLCVParams` for this parameter. `fetchTrades` is unaffected as its `HistoryFilterParams | TradesParams` union has no structural ambiguity.
+
+## [2.17.7] - 2026-02-25
+
+### Fixed
+
+- **Python SDK Missing Exchange Classes**: `pmxt.Probable`, `pmxt.Baozi`, and `pmxt.Myriad` raised `AttributeError` on import because the Python SDK's exchange subclasses were maintained manually and had drifted from the TypeScript core. All three classes are now available.
+
+### Infrastructure
+
+- **Auto-generated Python SDK exchange classes**: `sdks/python/pmxt/_exchanges.py` is now generated from `core/src/server/app.ts` (the single source of truth for registered exchanges) via `core/scripts/generate-python-exchanges.js`. The generator also keeps `__init__.py` imports and `__all__` in sync. A CI guard (`python-exchanges-check.yml`) fails any PR where the generated file diverges from the committed one.
+- **Auto-generated `COMPLIANCE.md`**: The feature support matrix is now generated from exchange implementations via `core/scripts/generate-compliance.js`, replacing the previously manual document. A CI guard (`compliance-check.yml`) keeps it in sync with `core/src/exchanges/*/index.ts`.
+- **TypeScript SDK client methods CI guard**: Added `typescript-client-check.yml` to fail PRs where `BaseExchange.ts` changes without regenerating the corresponding methods in the TypeScript SDK `client.ts`.
+- All three generators are wired into `generate:sdk:all` and run automatically on every publish.
+
 ## [2.17.6] - 2026-02-24
 
 ### Fixed
