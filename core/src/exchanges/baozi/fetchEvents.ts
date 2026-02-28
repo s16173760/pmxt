@@ -28,6 +28,8 @@ export async function fetchEvents(
                 description: m.description,
                 slug: m.marketId,
                 markets: [m],
+                volume24h: m.volume24h,
+                volume: m.volume,
                 url: m.url,
                 image: m.image,
                 category: m.category,

@@ -97,6 +97,8 @@ export function mapQuestionToEvent(question: any): UnifiedEvent | null {
         description: '',
         slug: String(question.id),
         markets,
+        volume24h: markets.reduce((sum, m) => sum + m.volume24h, 0),
+        volume: markets.some(m => m.volume !== undefined) ? markets.reduce((sum, m) => sum + (m.volume ?? 0), 0) : undefined,
         url: `https://myriad.markets`,
     };
 

@@ -20,6 +20,8 @@ function mapRawEventToUnified(event: any): UnifiedEvent {
         description: event.description || '',
         slug: event.slug,
         markets: markets,
+        volume24h: markets.reduce((sum, m) => sum + m.volume24h, 0),
+        volume: markets.some(m => m.volume !== undefined) ? markets.reduce((sum, m) => sum + (m.volume ?? 0), 0) : undefined,
         url: `https://polymarket.com/event/${event.slug}`,
         image: event.image || `https://polymarket.com/api/og?slug=${event.slug}`,
         category: event.category || event.tags?.[0]?.label,

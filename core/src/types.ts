@@ -21,6 +21,9 @@ export interface UnifiedEvent {
     slug: string;
     markets: UnifiedMarket[];
 
+    volume24h: number;
+    volume?: number; // Total / Lifetime volume (sum across markets; undefined if no market provides it)
+
     url: string;
     image?: string;
 

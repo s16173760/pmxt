@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.18.0] - 2026-02-27
+
+  ### Fixed
+  - `UnifiedEvent` now includes `volume24h` and `volume` fields, summed from child markets at
+    normalization time. Previously these fields were absent despite being the natural aggregate
+    of each market's volume. Sort-by-volume on event listings now works without manual aggregation
+    by the caller.
+
+  ### Changed
+  - `UnifiedEvent.volume24h: number` is now a required field (mirrors `UnifiedMarket.volume24h`).
+  - `UnifiedEvent.volume?: number` is now an optional field (mirrors `UnifiedMarket.volume`);
+    only populated when at least one child market exposes lifetime volume.
+
 ## [2.17.9] - 2026-02-25
 
 ### Fixed

@@ -62,7 +62,16 @@ export function validateUnifiedEvent(event: UnifiedEvent, exchangeName: string) 
   expect(typeof event.url).toBe("string");
   expect(event.url).toMatch(/^https?:\/\//);
 
-  // 2. Markets Collection
+  // 2. Volume
+  expect(typeof event.volume24h).toBe('number');
+  expect(event.volume24h).toBeGreaterThanOrEqual(0);
+
+  if (event.volume !== undefined) {
+    expect(typeof event.volume).toBe('number');
+    expect(event.volume).toBeGreaterThanOrEqual(0);
+  }
+
+  // 3. Markets Collection
   expect(Array.isArray(event.markets)).toBe(true);
   expect(event.markets.length).toBeGreaterThan(0);
 
