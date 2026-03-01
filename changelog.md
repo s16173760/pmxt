@@ -2,12 +2,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## [2.17.10] - 2026-02-25
-
-### Added
-
-- **Raw mode for price data**: Added an optional `{ mode: "raw" }` API argument to return raw exchange price values without normalization.
-
 ## [2.17.9] - 2026-02-25
 
 ### Fixed

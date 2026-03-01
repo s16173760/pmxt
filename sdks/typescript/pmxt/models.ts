@@ -1,15 +1,8 @@
 /**
  * Data models for PMXT TypeScript SDK.
- *
+ * 
  * These are clean TypeScript interfaces that provide a user-friendly API.
  */
-
- /**
-  * Request options for API calls.
-  */
-export interface RequestOptions {
-    mode?: 'raw';
-}
 
 /**
  * A single tradeable outcome within a market.

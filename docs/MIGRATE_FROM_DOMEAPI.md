@@ -94,7 +94,7 @@ markets = poly.fetch_markets(query='Trump')
 price = markets[0].yes.price  # 0.0 to 1.0
 ```
 
-> Note: DomeAPI returns price as a raw value. pmxt prices default to 0.0-1.0 (probability). To return raw exchange values, pass `{ mode: "raw" }` as the final argument (e.g., `fetchMarkets(params, { mode: "raw" })`).
+> Note: DomeAPI returns price as a raw value. pmxt prices are always 0.0-1.0 (probability). Multiply by 100 for percentage.
 
 ---
 

@@ -1,15 +1,13 @@
-import { OHLCVParams, RequestOptions } from "../../BaseExchange";
+import { OHLCVParams } from "../../BaseExchange";
 import { PriceCandle } from "../../types";
 import { mapIntervalToKalshi } from "./utils";
 import { validateIdFormat } from "../../utils/validation";
 import { kalshiErrorMapper } from "./errors";
-import { getKalshiPriceContext, fromKalshiCents } from "./price";
 
 export async function fetchOHLCV(
   id: string,
   params: OHLCVParams,
   callApi: (operationId: string, params?: Record<string, any>) => Promise<any>,
-  options?: RequestOptions,
 ): Promise<PriceCandle[]> {
   validateIdFormat(id, "OHLCV");
 
@@ -74,7 +72,6 @@ export async function fetchOHLCV(
       end_ts: endTs,
     });
     const candles = data.candlesticks || [];
-    const priceContext = getKalshiPriceContext(options);
 
     const mappedCandles: PriceCandle[] = candles.map((c: any) => {
       // Priority:
@@ -101,10 +98,10 @@ export async function fetchOHLCV(
 
       return {
         timestamp: c.end_period_ts * 1000,
-        open: fromKalshiCents(getVal("open"), priceContext),
-        high: fromKalshiCents(getVal("high"), priceContext),
-        low: fromKalshiCents(getVal("low"), priceContext),
-        close: fromKalshiCents(getVal("close"), priceContext),
+        open: getVal("open") / 100,
+        high: getVal("high") / 100,
+        low: getVal("low") / 100,
+        close: getVal("close") / 100,
         volume: c.volume || 0,
       };
     });

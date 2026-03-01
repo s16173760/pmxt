@@ -33,7 +33,6 @@ from .models import (
     Order,
     Position,
     Balance,
-    RequestOptions,
 )
 
 
@@ -81,5 +80,4 @@ __all__ = [
     "Order",
     "Position",
     "Balance",
-    "RequestOptions",
 ]

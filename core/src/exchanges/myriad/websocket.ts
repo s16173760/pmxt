@@ -1,7 +1,5 @@
 import { OrderBook, Trade } from '../../types';
-import { RequestOptions } from '../../BaseExchange';
 import { fetchOrderBook } from './fetchOrderBook';
-import { resolveMyriadPrice } from './price';
 
 // Myriad API v2 does not expose a WebSocket endpoint.
 // We implement a poll-based fallback that resolves promises
@@ -17,7 +15,6 @@ export class MyriadWebSocket {
     private orderBookResolvers: Map<string, ((value: OrderBook) => void)[]> = new Map();
     private tradeResolvers: Map<string, ((value: Trade[]) => void)[]> = new Map();
     private lastTradeTimestamp: Map<string, number> = new Map();
-    private tradeOptions: Map<string, RequestOptions | undefined> = new Map();
     private closed = false;
 
     constructor(callApi: (operationId: string, params?: Record<string, any>) => Promise<any>, pollInterval?: number) {
@@ -25,7 +22,7 @@ export class MyriadWebSocket {
         this.pollInterval = pollInterval || DEFAULT_POLL_INTERVAL;
     }
 
-    async watchOrderBook(id: string, _options?: RequestOptions): Promise<OrderBook> {
+    async watchOrderBook(id: string): Promise<OrderBook> {
         if (this.closed) throw new Error('WebSocket connection is closed');
 
         return new Promise<OrderBook>((resolve) => {
@@ -40,7 +37,7 @@ export class MyriadWebSocket {
         });
     }
 
-    async watchTrades(id: string, options?: RequestOptions): Promise<Trade[]> {
+    async watchTrades(id: string): Promise<Trade[]> {
         if (this.closed) throw new Error('WebSocket connection is closed');
 
         return new Promise<Trade[]>((resolve) => {
@@ -49,7 +46,6 @@ export class MyriadWebSocket {
             }
             this.tradeResolvers.get(id)!.push(resolve);
 
-            this.tradeOptions.set(id, options);
             if (!this.tradeTimers.has(id)) {
                 this.startTradePolling(id);
             }
@@ -96,7 +92,6 @@ export class MyriadWebSocket {
     private startTradePolling(id: string): void {
         const poll = async () => {
             try {
-                const options = this.tradeOptions.get(id);
                 const parts = id.split(':');
                 const [networkId, marketId] = parts;
                 const outcomeId = parts.length >= 3 ? parts[2] : undefined;
@@ -121,7 +116,7 @@ export class MyriadWebSocket {
                 const trades: Trade[] = filtered.map((t: any, index: number) => ({
                     id: `${t.blockNumber || t.timestamp}-${index}`,
                     timestamp: (t.timestamp || 0) * 1000,
-                    price: resolveMyriadPrice(t, options),
+                    price: t.shares > 0 ? Number(t.value) / Number(t.shares) : 0,
                     amount: Number(t.shares || 0),
                     side: t.action === 'buy' ? 'buy' as const : 'sell' as const,
                 }));

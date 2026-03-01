@@ -7,7 +7,7 @@ OpenAPI client, matching the JavaScript API exactly.
 
 import os
 import sys
-from typing import List, Optional, Dict, Any, Literal, Union, Sequence
+from typing import List, Optional, Dict, Any, Literal, Union
 from datetime import datetime
 from abc import ABC, abstractmethod
 import json
@@ -226,7 +226,7 @@ class Exchange(ABC):
         base_url: str = "http://localhost:3847",
         auto_start_server: bool = True,
         proxy_address: Optional[str] = None,
-        signature_type: Optional[Union[int, str]] = None,
+        signature_type: Optional[Any] = None,
     ):
         """
         Initialize an exchange client.
@@ -330,45 +330,6 @@ class Exchange(ABC):
             creds["signatureType"] = self.signature_type
         return creds if creds else None
 
-    def _build_request_options(
-        self,
-        mode: Optional[Literal["normalized", "raw"]],
-    ) -> Optional[Dict[str, str]]:
-        """Build validated request options."""
-        if mode is None:
-            return None
-        if mode not in ("normalized", "raw"):
-            raise ValueError("mode must be either 'normalized' or 'raw'")
-        return {"mode": mode}
-
-    def _build_args_with_optional_options(
-        self,
-        required_args: Sequence[object],
-        optional_args: Optional[Sequence[object]] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> List[object]:
-        """
-        Build args while preserving optional argument positions when options are present.
-        """
-        args: List[object] = list(required_args)
-        optional_values = list(optional_args or [])
-        options = self._build_request_options(mode)
-
-        if options is not None:
-            args.extend(optional_values)
-            args.append(options)
-            return args
-
-        last_non_none = -1
-        for i, value in enumerate(optional_values):
-            if value is not None:
-                last_non_none = i
-
-        if last_non_none >= 0:
-            args.extend(optional_values[: last_non_none + 1])
-
-        return args
-
     @property
     def has(self) -> Dict[str, Any]:
         """
@@ -402,20 +363,11 @@ class Exchange(ABC):
 
     # Low-Level API Access
 
-    def _call_method(
-        self,
-        method_name: str,
-        params: Optional[Dict[str, object]] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> Any:
+    def _call_method(self, method_name: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """Call any exchange method on the server by name."""
         try:
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/{method_name}"
-            optional_params = params
-            if mode is not None and optional_params is None:
-                optional_params = {}
-            args = self._build_args_with_optional_options([], [optional_params], mode)
-            body: Dict[str, object] = {"args": args}
+            body: Dict[str, Any] = {"args": [params] if params is not None else []}
             creds = self._get_credentials_dict()
             if creds:
                 body["credentials"] = creds
@@ -510,12 +462,7 @@ class Exchange(ABC):
         self._loaded_markets = True
         return self.markets
 
-    def fetch_markets(
-        self,
-        query: Optional[str] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-        **kwargs,
-    ) -> List[UnifiedMarket]:
+    def fetch_markets(self, query: Optional[str] = None, **kwargs) -> List[UnifiedMarket]:
         """
         Get active markets from the exchange.
 
@@ -530,8 +477,10 @@ class Exchange(ABC):
             >>> markets = exchange.fetch_markets("Trump", limit=20, sort="volume")
         """
         try:
+            body_dict = {"args": []}
+
             # Prepare arguments
-            search_params: Dict[str, object] = {}
+            search_params = {}
             if query:
                 search_params["query"] = query
 
@@ -539,13 +488,8 @@ class Exchange(ABC):
             for key, value in kwargs.items():
                 search_params[key] = value
 
-            params_arg: Optional[Dict[str, object]] = (
-                search_params if search_params else None
-            )
-            if mode is not None and params_arg is None:
-                params_arg = {}
-            args = self._build_args_with_optional_options([], [params_arg], mode)
-            body_dict = {"args": args}
+            if search_params:
+                body_dict["args"] = [search_params]
             
             # Add credentials if available
             creds = self._get_credentials_dict()
@@ -564,12 +508,7 @@ class Exchange(ABC):
         except ApiException as e:
             raise Exception(f"Failed to fetch markets: {self._extract_api_error(e)}") from None
 
-    def fetch_events(
-        self,
-        query: Optional[str] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-        **kwargs,
-    ) -> List[UnifiedEvent]:
+    def fetch_events(self, query: Optional[str] = None, **kwargs) -> List[UnifiedEvent]:
         """
         Fetch events with optional keyword search.
         Events group related markets together.
@@ -585,8 +524,10 @@ class Exchange(ABC):
             >>> events = exchange.fetch_events("Election", limit=10)
         """
         try:
+            body_dict = {"args": []}
+
             # Prepare arguments
-            search_params: Dict[str, object] = {}
+            search_params = {}
             if query:
                 search_params["query"] = query
 
@@ -594,13 +535,8 @@ class Exchange(ABC):
             for key, value in kwargs.items():
                 search_params[key] = value
 
-            params_arg: Optional[Dict[str, object]] = (
-                search_params if search_params else None
-            )
-            if mode is not None and params_arg is None:
-                params_arg = {}
-            args = self._build_args_with_optional_options([], [params_arg], mode)
-            body_dict = {"args": args}
+            if search_params:
+                body_dict["args"] = [search_params]
             
             # Add credentials if available
             creds = self._get_credentials_dict()
@@ -626,8 +562,7 @@ class Exchange(ABC):
         event_id: Optional[str] = None,
         slug: Optional[str] = None,
         query: Optional[str] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-        **kwargs,
+        **kwargs
     ) -> UnifiedMarket:
         """
         Fetch a single market by lookup parameters.
@@ -652,7 +587,7 @@ class Exchange(ABC):
             >>> market = exchange.fetch_market(slug='will-trump-win')
         """
         try:
-            search_params: Dict[str, object] = {}
+            search_params = {}
             if market_id:
                 search_params["marketId"] = market_id
             if outcome_id:
@@ -673,13 +608,7 @@ class Exchange(ABC):
                 camel_key = key_map.get(key, key)
                 search_params[camel_key] = value
 
-            params_arg: Optional[Dict[str, object]] = (
-                search_params if search_params else None
-            )
-            if mode is not None and params_arg is None:
-                params_arg = {}
-            args = self._build_args_with_optional_options([], [params_arg], mode)
-            body_dict = {"args": args}
+            body_dict = {"args": [search_params] if search_params else []}
 
             creds = self._get_credentials_dict()
             if creds:
@@ -710,8 +639,7 @@ class Exchange(ABC):
         event_id: Optional[str] = None,
         slug: Optional[str] = None,
         query: Optional[str] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-        **kwargs,
+        **kwargs
     ) -> UnifiedEvent:
         """
         Fetch a single event by lookup parameters.
@@ -734,7 +662,7 @@ class Exchange(ABC):
             >>> event = exchange.fetch_event(slug='us-election')
         """
         try:
-            search_params: Dict[str, object] = {}
+            search_params = {}
             if event_id:
                 search_params["eventId"] = event_id
             if slug:
@@ -750,13 +678,7 @@ class Exchange(ABC):
                 camel_key = key_map.get(key, key)
                 search_params[camel_key] = value
 
-            params_arg: Optional[Dict[str, object]] = (
-                search_params if search_params else None
-            )
-            if mode is not None and params_arg is None:
-                params_arg = {}
-            args = self._build_args_with_optional_options([], [params_arg], mode)
-            body_dict = {"args": args}
+            body_dict = {"args": [search_params] if search_params else []}
 
             creds = self._get_credentials_dict()
             if creds:
@@ -1005,8 +927,7 @@ class Exchange(ABC):
         limit: Optional[int] = None,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-        **kwargs,
+        **kwargs
     ) -> List[PriceCandle]:
         """
         Get historical price candles.
@@ -1036,7 +957,7 @@ class Exchange(ABC):
             ... )
         """
         try:
-            params_dict: Dict[str, object] = {}
+            params_dict = {}
             if resolution:
                 params_dict["resolution"] = resolution
             if start:
@@ -1051,12 +972,7 @@ class Exchange(ABC):
                 if key not in params_dict:
                     params_dict[key] = value
             
-            args = self._build_args_with_optional_options(
-                [outcome_id],
-                [params_dict],
-                mode,
-            )
-            request_body_dict = {"args": args}
+            request_body_dict = {"args": [outcome_id, params_dict]}
             request_body = internal_models.FetchOHLCVRequest.from_dict(request_body_dict)
             
             response = self._api.fetch_ohlcv(
@@ -1069,11 +985,7 @@ class Exchange(ABC):
         except ApiException as e:
             raise Exception(f"Failed to fetch OHLCV: {self._extract_api_error(e)}") from None
     
-    def fetch_order_book(
-        self,
-        outcome_id: str,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> OrderBook:
+    def fetch_order_book(self, outcome_id: str) -> OrderBook:
         """
         Get current order book for an outcome.
         
@@ -1089,8 +1001,7 @@ class Exchange(ABC):
             >>> print(f"Best ask: {order_book.asks[0].price}")
         """
         try:
-            args = self._build_args_with_optional_options([outcome_id], [], mode)
-            body_dict = {"args": args}
+            body_dict = {"args": [outcome_id]}
             request_body = internal_models.FetchOrderBookRequest.from_dict(body_dict)
             
             response = self._api.fetch_order_book(
@@ -1108,8 +1019,7 @@ class Exchange(ABC):
         outcome_id: str,
         limit: Optional[int] = None,
         since: Optional[int] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-        **kwargs,
+        **kwargs
     ) -> List[Trade]:
         """
         Get trade history for an outcome.
@@ -1129,7 +1039,7 @@ class Exchange(ABC):
             >>> trades = exchange.fetch_trades(outcome_id, limit=50)
         """
         try:
-            params_dict: Dict[str, object] = {}
+            params_dict = {}
             if limit:
                 params_dict["limit"] = limit
             if since:
@@ -1140,12 +1050,7 @@ class Exchange(ABC):
                 if key not in params_dict:
                     params_dict[key] = value
             
-            args = self._build_args_with_optional_options(
-                [outcome_id],
-                [params_dict],
-                mode,
-            )
-            request_body_dict = {"args": args}
+            request_body_dict = {"args": [outcome_id, params_dict]}
             request_body = internal_models.FetchTradesRequest.from_dict(request_body_dict)
             
             response = self._api.fetch_trades(
@@ -1160,12 +1065,7 @@ class Exchange(ABC):
     
     # WebSocket Streaming Methods
     
-    def watch_order_book(
-        self,
-        outcome_id: str,
-        limit: Optional[int] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> OrderBook:
+    def watch_order_book(self, outcome_id: str, limit: Optional[int] = None) -> OrderBook:
         """
         Watch real-time order book updates via WebSocket.
         
@@ -1187,11 +1087,9 @@ class Exchange(ABC):
             ...     print(f"Best ask: {order_book.asks[0].price}")
         """
         try:
-            args = self._build_args_with_optional_options(
-                [outcome_id],
-                [limit],
-                mode,
-            )
+            args = [outcome_id]
+            if limit is not None:
+                args.append(limit)
             
             body_dict = {"args": args}
             
@@ -1216,8 +1114,7 @@ class Exchange(ABC):
         self,
         outcome_id: str,
         since: Optional[int] = None,
-        limit: Optional[int] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
+        limit: Optional[int] = None
     ) -> List[Trade]:
         """
         Watch real-time trade updates via WebSocket.
@@ -1241,11 +1138,11 @@ class Exchange(ABC):
             ...         print(f"Trade: {trade.price} @ {trade.amount}")
         """
         try:
-            args = self._build_args_with_optional_options(
-                [outcome_id],
-                [since, limit],
-                mode,
-            )
+            args = [outcome_id]
+            if since is not None:
+                args.append(since)
+            if limit is not None:
+                args.append(limit)
             
             body_dict = {"args": args}
             
@@ -1487,11 +1384,7 @@ class Exchange(ABC):
         except ApiException as e:
             raise Exception(f"Failed to cancel order: {self._extract_api_error(e)}") from None
     
-    def fetch_order(
-        self,
-        order_id: str,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> Order:
+    def fetch_order(self, order_id: str) -> Order:
         """
         Get details of a specific order.
         
@@ -1502,8 +1395,7 @@ class Exchange(ABC):
             Order details
         """
         try:
-            args = self._build_args_with_optional_options([order_id], [], mode)
-            body_dict = {"args": args}
+            body_dict = {"args": [order_id]}
             
             # Add credentials if available
             creds = self._get_credentials_dict()
@@ -1522,11 +1414,7 @@ class Exchange(ABC):
         except ApiException as e:
             raise Exception(f"Failed to fetch order: {self._extract_api_error(e)}") from None
     
-    def fetch_open_orders(
-        self,
-        market_id: Optional[str] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> List[Order]:
+    def fetch_open_orders(self, market_id: Optional[str] = None) -> List[Order]:
         """
         Get all open orders, optionally filtered by market.
         
@@ -1537,7 +1425,9 @@ class Exchange(ABC):
             List of open orders
         """
         try:
-            args = self._build_args_with_optional_options([], [market_id], mode)
+            args = []
+            if market_id:
+                args.append(market_id)
             
             body_dict = {"args": args}
             
@@ -1562,10 +1452,9 @@ class Exchange(ABC):
         self,
         outcome_id: Optional[str] = None,
         market_id: Optional[str] = None,
-        since: Optional[Union[datetime, int, float, str]] = None,
+        since: Optional[Any] = None,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
     ) -> List[UserTrade]:
         """
         Get trades made by the authenticated user.
@@ -1583,30 +1472,26 @@ class Exchange(ABC):
         Example:
             trades = exchange.fetch_my_trades(limit=50)
         """
-        params: Dict[str, object] = {}
+        params: Dict[str, Any] = {}
         if outcome_id is not None:
             params["outcomeId"] = outcome_id
         if market_id is not None:
             params["marketId"] = market_id
         if since is not None:
-            if isinstance(since, datetime):
-                params["since"] = since.isoformat()
-            else:
-                params["since"] = since
+            params["since"] = since.isoformat() if hasattr(since, "isoformat") else since
         if limit is not None:
             params["limit"] = limit
         if cursor is not None:
             params["cursor"] = cursor
-        data = self._call_method("fetchMyTrades", params or None, mode)
+        data = self._call_method("fetchMyTrades", params or None)
         return [_convert_user_trade(t) for t in (data or [])]
 
     def fetch_closed_orders(
         self,
         market_id: Optional[str] = None,
-        since: Optional[Union[datetime, int, float, str]] = None,
-        until: Optional[Union[datetime, int, float, str]] = None,
+        since: Optional[Any] = None,
+        until: Optional[Any] = None,
         limit: Optional[int] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
     ) -> List[Order]:
         """
         Get filled and cancelled orders.
@@ -1623,31 +1508,24 @@ class Exchange(ABC):
         Example:
             orders = exchange.fetch_closed_orders(market_id="some-market")
         """
-        params: Dict[str, object] = {}
+        params: Dict[str, Any] = {}
         if market_id is not None:
             params["marketId"] = market_id
         if since is not None:
-            if isinstance(since, datetime):
-                params["since"] = since.isoformat()
-            else:
-                params["since"] = since
+            params["since"] = since.isoformat() if hasattr(since, "isoformat") else since
         if until is not None:
-            if isinstance(until, datetime):
-                params["until"] = until.isoformat()
-            else:
-                params["until"] = until
+            params["until"] = until.isoformat() if hasattr(until, "isoformat") else until
         if limit is not None:
             params["limit"] = limit
-        data = self._call_method("fetchClosedOrders", params or None, mode)
+        data = self._call_method("fetchClosedOrders", params or None)
         return [_convert_order(o) for o in (data or [])]
 
     def fetch_all_orders(
         self,
         market_id: Optional[str] = None,
-        since: Optional[Union[datetime, int, float, str]] = None,
-        until: Optional[Union[datetime, int, float, str]] = None,
+        since: Optional[Any] = None,
+        until: Optional[Any] = None,
         limit: Optional[int] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
     ) -> List[Order]:
         """
         Get all orders (open + closed), sorted newest-first.
@@ -1664,29 +1542,22 @@ class Exchange(ABC):
         Example:
             orders = exchange.fetch_all_orders()
         """
-        params: Dict[str, object] = {}
+        params: Dict[str, Any] = {}
         if market_id is not None:
             params["marketId"] = market_id
         if since is not None:
-            if isinstance(since, datetime):
-                params["since"] = since.isoformat()
-            else:
-                params["since"] = since
+            params["since"] = since.isoformat() if hasattr(since, "isoformat") else since
         if until is not None:
-            if isinstance(until, datetime):
-                params["until"] = until.isoformat()
-            else:
-                params["until"] = until
+            params["until"] = until.isoformat() if hasattr(until, "isoformat") else until
         if limit is not None:
             params["limit"] = limit
-        data = self._call_method("fetchAllOrders", params or None, mode)
+        data = self._call_method("fetchAllOrders", params or None)
         return [_convert_order(o) for o in (data or [])]
 
     def fetch_markets_paginated(
         self,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
-        mode: Optional[Literal["normalized", "raw"]] = None,
     ) -> PaginatedMarketsResult:
         """
         Fetch markets with cursor-based pagination.
@@ -1706,12 +1577,12 @@ class Exchange(ABC):
             while page.next_cursor:
                 page = exchange.fetch_markets_paginated(limit=100, cursor=page.next_cursor)
         """
-        params: Dict[str, object] = {}
+        params: Dict[str, Any] = {}
         if limit is not None:
             params["limit"] = limit
         if cursor is not None:
             params["cursor"] = cursor
-        raw = self._call_method("fetchMarketsPaginated", params or None, mode)
+        raw = self._call_method("fetchMarketsPaginated", params or None)
         return PaginatedMarketsResult(
             data=[_convert_market(m) for m in raw.get("data", [])],
             total=raw.get("total", 0),
@@ -1720,10 +1591,7 @@ class Exchange(ABC):
 
     # Account Methods
 
-    def fetch_positions(
-        self,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> List[Position]:
+    def fetch_positions(self) -> List[Position]:
         """
         Get current positions across all markets.
         
@@ -1731,8 +1599,7 @@ class Exchange(ABC):
             List of positions
         """
         try:
-            args = self._build_args_with_optional_options([], [], mode)
-            body_dict = {"args": args}
+            body_dict = {"args": []}
             
             # Add credentials if available
             creds = self._get_credentials_dict()
@@ -1751,10 +1618,7 @@ class Exchange(ABC):
         except ApiException as e:
             raise Exception(f"Failed to fetch positions: {self._extract_api_error(e)}") from None
     
-    def fetch_balance(
-        self,
-        mode: Optional[Literal["normalized", "raw"]] = None,
-    ) -> List[Balance]:
+    def fetch_balance(self) -> List[Balance]:
         """
         Get account balance.
         
@@ -1762,8 +1626,7 @@ class Exchange(ABC):
             List of balances (by currency)
         """
         try:
-            args = self._build_args_with_optional_options([], [], mode)
-            body_dict = {"args": args}
+            body_dict = {"args": []}
             
             # Add credentials if available
             creds = self._get_credentials_dict()
@@ -1854,3 +1717,4 @@ class Exchange(ABC):
             return _convert_execution_result(data)
         except Exception as e:
             raise Exception(f"Failed to get execution price: {self._extract_api_error(e)}") from None
+

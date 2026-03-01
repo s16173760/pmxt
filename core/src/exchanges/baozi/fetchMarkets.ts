@@ -1,5 +1,5 @@
 import { Connection } from '@solana/web3.js';
-import { MarketFetchParams, RequestOptions } from '../../BaseExchange';
+import { MarketFetchParams } from '../../BaseExchange';
 import { UnifiedMarket } from '../../types';
 import {
     PROGRAM_ID,
@@ -20,11 +20,10 @@ const marketsCache = new Cache<UnifiedMarket[]>(30_000); // 30s TTL
 export async function fetchMarkets(
     connection: Connection,
     params?: MarketFetchParams,
-    options?: RequestOptions,
 ): Promise<UnifiedMarket[]> {
     try {
         // Use cache for default (no-filter) fetches
-        if (!params?.query && !params?.slug && options?.mode !== 'raw') {
+        if (!params?.query && !params?.slug) {
             const cached = marketsCache.get();
             if (cached) {
                 return applyFilters(cached, params);
@@ -47,7 +46,7 @@ export async function fetchMarkets(
         for (const account of booleanAccounts) {
             try {
                 const parsed = parseMarket(account.account.data);
-                markets.push(mapBooleanToUnified(parsed, account.pubkey.toString(), options));
+                markets.push(mapBooleanToUnified(parsed, account.pubkey.toString()));
             } catch {
                 // Skip malformed accounts
             }
@@ -57,16 +56,14 @@ export async function fetchMarkets(
         for (const account of raceAccounts) {
             try {
                 const parsed = parseRaceMarket(account.account.data);
-                markets.push(mapRaceToUnified(parsed, account.pubkey.toString(), options));
+                markets.push(mapRaceToUnified(parsed, account.pubkey.toString()));
             } catch {
                 // Skip malformed accounts
             }
         }
 
         // Cache results
-        if (options?.mode !== 'raw') {
-            marketsCache.set(markets);
-        }
+        marketsCache.set(markets);
 
         return applyFilters(markets, params);
     } catch (error: any) {
@@ -77,7 +74,6 @@ export async function fetchMarkets(
 export async function fetchSingleMarket(
     connection: Connection,
     pubkey: string,
-    options?: RequestOptions,
 ): Promise<UnifiedMarket | null> {
     try {
         const { PublicKey } = await import('@solana/web3.js');
@@ -91,13 +87,13 @@ export async function fetchSingleMarket(
         // Check if it's a boolean market
         if (Buffer.from(discriminator).equals(Buffer.from([219, 190, 213, 55, 0, 227, 198, 154]))) {
             const parsed = parseMarket(data);
-            return mapBooleanToUnified(parsed, pubkey, options);
+            return mapBooleanToUnified(parsed, pubkey);
         }
 
         // Check if it's a race market
         if (Buffer.from(discriminator).equals(Buffer.from([235, 196, 111, 75, 230, 113, 118, 238]))) {
             const parsed = parseRaceMarket(data);
-            return mapRaceToUnified(parsed, pubkey, options);
+            return mapRaceToUnified(parsed, pubkey);
         }
 
         return null;

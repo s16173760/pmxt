@@ -2,12 +2,7 @@ import { PublicKey } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { createHash } from 'crypto';
 import { UnifiedMarket, MarketOutcome } from '../../types';
-import { RequestOptions } from '../../BaseExchange';
 import { addBinaryOutcomes } from '../../utils/market-utils';
-import {
-    clampBaoziPrice,
-    normalizeBaoziOutcomes,
-} from './price';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -372,11 +367,7 @@ export function parseRacePosition(data: Buffer | Uint8Array): BaoziRacePosition 
 // Mapping to Unified Types
 // ---------------------------------------------------------------------------
 
-export function mapBooleanToUnified(
-    market: BaoziMarket,
-    pubkey: string,
-    options?: RequestOptions,
-): UnifiedMarket {
+export function mapBooleanToUnified(market: BaoziMarket, pubkey: string): UnifiedMarket {
     const totalPool = market.yesPool + market.noPool;
     const totalPoolSol = Number(totalPool) / LAMPORTS_PER_SOL;
 
@@ -396,13 +387,13 @@ export function mapBooleanToUnified(
             outcomeId: `${pubkey}-YES`,
             marketId: pubkey,
             label: 'Yes',
-            price: clampBaoziPrice(yesPrice, options),
+            price: yesPrice,
         },
         {
             outcomeId: `${pubkey}-NO`,
             marketId: pubkey,
             label: 'No',
-            price: clampBaoziPrice(noPrice, options),
+            price: noPrice,
         },
     ];
 
@@ -424,11 +415,7 @@ export function mapBooleanToUnified(
     return um;
 }
 
-export function mapRaceToUnified(
-    market: BaoziRaceMarket,
-    pubkey: string,
-    options?: RequestOptions,
-): UnifiedMarket {
+export function mapRaceToUnified(market: BaoziRaceMarket, pubkey: string): UnifiedMarket {
     const totalPoolSol = Number(market.totalPool) / LAMPORTS_PER_SOL;
 
     const outcomes: MarketOutcome[] = [];
@@ -444,12 +431,17 @@ export function mapRaceToUnified(
             outcomeId: `${pubkey}-${i}`,
             marketId: pubkey,
             label: market.outcomeLabels[i] || `Outcome ${i + 1}`,
-            price: clampBaoziPrice(price, options),
+            price: Math.min(Math.max(price, 0), 1),
         });
     }
 
-    // Normalize prices to sum to 1 in non-raw mode.
-    normalizeBaoziOutcomes(outcomes, options);
+    // Normalize prices to sum to 1
+    const priceSum = outcomes.reduce((s, o) => s + o.price, 0);
+    if (priceSum > 0) {
+        for (const o of outcomes) {
+            o.price = o.price / priceSum;
+        }
+    }
 
     const um: UnifiedMarket = {
         marketId: pubkey,

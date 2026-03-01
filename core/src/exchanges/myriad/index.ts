@@ -1,4 +1,4 @@
-import { PredictionMarketExchange, MarketFilterParams, HistoryFilterParams, OHLCVParams, TradesParams, ExchangeCredentials, EventFetchParams, MyTradesParams, RequestOptions } from '../../BaseExchange';
+import { PredictionMarketExchange, MarketFilterParams, HistoryFilterParams, OHLCVParams, TradesParams, ExchangeCredentials, EventFetchParams, MyTradesParams } from '../../BaseExchange';
 import { UnifiedMarket, UnifiedEvent, PriceCandle, OrderBook, Trade, UserTrade, Balance, Order, Position, CreateOrderParams } from '../../types';
 import { fetchMarkets } from './fetchMarkets';
 import { fetchEvents } from './fetchEvents';
@@ -11,7 +11,6 @@ import { AuthenticationError } from '../../errors';
 import { BASE_URL } from './utils';
 import { parseOpenApiSpec } from '../../utils/openapi';
 import { myriadApiSpec } from './api';
-import { resolveMyriadPrice } from './price';
 
 export class MyriadExchange extends PredictionMarketExchange {
     override readonly has = {
@@ -96,11 +95,7 @@ export class MyriadExchange extends PredictionMarketExchange {
         return fetchOrderBook(id, this.callApi.bind(this));
     }
 
-    async fetchTrades(
-        id: string,
-        params: TradesParams | HistoryFilterParams,
-        options?: RequestOptions,
-    ): Promise<Trade[]> {
+    async fetchTrades(id: string, params: TradesParams | HistoryFilterParams): Promise<Trade[]> {
         if ('resolution' in params && params.resolution !== undefined) {
             console.warn(
                 '[pmxt] Warning: The "resolution" parameter is deprecated for fetchTrades() and will be ignored. ' +
@@ -145,13 +140,13 @@ export class MyriadExchange extends PredictionMarketExchange {
         return filtered.map((t: any, index: number) => ({
             id: `${t.blockNumber || t.timestamp}-${index}`,
             timestamp: (t.timestamp || 0) * 1000,
-            price: resolveMyriadPrice(t, options),
+            price: t.shares > 0 ? Number(t.value) / Number(t.shares) : 0,
             amount: Number(t.shares || 0),
             side: t.action === 'buy' ? 'buy' as const : 'sell' as const,
         }));
     }
 
-    async fetchMyTrades(params?: MyTradesParams, options?: RequestOptions): Promise<UserTrade[]> {
+    async fetchMyTrades(params?: MyTradesParams): Promise<UserTrade[]> {
         const walletAddress = this.ensureAuth().walletAddress;
         if (!walletAddress) {
             throw new AuthenticationError(
@@ -174,7 +169,7 @@ export class MyriadExchange extends PredictionMarketExchange {
         return tradeEvents.map((t: any, i: number) => ({
             id: `${t.blockNumber || t.timestamp}-${i}`,
             timestamp: (t.timestamp || 0) * 1000,
-            price: resolveMyriadPrice(t, options),
+            price: t.shares > 0 ? Number(t.value) / Number(t.shares) : 0,
             amount: Number(t.shares || 0),
             side: t.action === 'buy' ? 'buy' as const : 'sell' as const,
         }));
@@ -243,7 +238,7 @@ export class MyriadExchange extends PredictionMarketExchange {
         return []; // AMM: no open orders
     }
 
-    async fetchPositions(options?: RequestOptions): Promise<Position[]> {
+    async fetchPositions(): Promise<Position[]> {
         const walletAddress = this.ensureAuth().walletAddress;
         if (!walletAddress) {
             throw new AuthenticationError(
@@ -261,7 +256,7 @@ export class MyriadExchange extends PredictionMarketExchange {
             outcomeLabel: pos.outcomeTitle || `Outcome ${pos.outcomeId}`,
             size: Number(pos.shares || 0),
             entryPrice: Number(pos.price || 0),
-            currentPrice: resolveMyriadPrice(pos, options),
+            currentPrice: Number(pos.value || 0) / Math.max(Number(pos.shares || 1), 1),
             unrealizedPnL: Number(pos.profit || 0),
         }));
     }
@@ -295,29 +290,20 @@ export class MyriadExchange extends PredictionMarketExchange {
     // WebSocket (poll-based)
     // ------------------------------------------------------------------------
 
-    async watchOrderBook(
-        id: string,
-        _limit?: number,
-        options?: RequestOptions,
-    ): Promise<OrderBook> {
+    async watchOrderBook(id: string, _limit?: number): Promise<OrderBook> {
         this.ensureAuth();
         if (!this.ws) {
             this.ws = new MyriadWebSocket(this.callApi.bind(this));
         }
-        return this.ws.watchOrderBook(id, options);
+        return this.ws.watchOrderBook(id);
     }
 
-    async watchTrades(
-        id: string,
-        _since?: number,
-        _limit?: number,
-        options?: RequestOptions,
-    ): Promise<Trade[]> {
+    async watchTrades(id: string, _since?: number, _limit?: number): Promise<Trade[]> {
         this.ensureAuth();
         if (!this.ws) {
             this.ws = new MyriadWebSocket(this.callApi.bind(this));
         }
-        return this.ws.watchTrades(id, options);
+        return this.ws.watchTrades(id);
     }
 
     async close(): Promise<void> {
@@ -326,5 +312,4 @@ export class MyriadExchange extends PredictionMarketExchange {
             this.ws = undefined;
         }
     }
-
 }

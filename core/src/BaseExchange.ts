@@ -20,10 +20,6 @@ export interface ApiDescriptor {
     endpoints: Record<string, ApiEndpoint>;
 }
 
-export interface RequestOptions {
-    mode?: 'raw';
-}
-
 export interface ImplicitApiMethodInfo {
     name: string;
     method: string;
@@ -226,7 +222,7 @@ export abstract class PredictionMarketExchange {
 
     // Snapshot state for cursor-based pagination
     private _snapshotTTL: number;
-    private _snapshot?: { markets: UnifiedMarket[]; takenAt: number; id: string; mode?: RequestOptions['mode'] };
+    private _snapshot?: { markets: UnifiedMarket[]; takenAt: number; id: string };
 
     get rateLimit(): number {
         return this._rateLimit;
@@ -409,11 +405,8 @@ export abstract class PredictionMarketExchange {
      * @example-python Get market by slug
      * markets = exchange.fetch_markets(slug='will-trump-win')
      */
-    async fetchMarkets(
-        params?: MarketFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedMarket[]> {
-        return this.fetchMarketsImpl(params, options);
+    async fetchMarkets(params?: MarketFetchParams): Promise<UnifiedMarket[]> {
+        return this.fetchMarketsImpl(params);
     }
 
     /**
@@ -431,13 +424,9 @@ export abstract class PredictionMarketExchange {
      * @param params.cursor     - Opaque cursor returned by a previous call
      * @returns PaginatedMarketsResult with data, total, and optional nextCursor
      */
-    async fetchMarketsPaginated(
-        params?: { limit?: number; cursor?: string },
-        options?: RequestOptions,
-    ): Promise<PaginatedMarketsResult> {
+    async fetchMarketsPaginated(params?: { limit?: number; cursor?: string }): Promise<PaginatedMarketsResult> {
         const limit = params?.limit;
         const cursor = params?.cursor;
-        const mode = options?.mode;
 
         if (cursor) {
             // Cursor encodes: snapshotId:offset
@@ -448,7 +437,6 @@ export abstract class PredictionMarketExchange {
             if (
                 !this._snapshot ||
                 this._snapshot.id !== snapshotId ||
-                this._snapshot.mode !== mode ||
                 (this._snapshotTTL > 0 && Date.now() - this._snapshot.takenAt > this._snapshotTTL)
             ) {
                 throw new Error('Cursor has expired');
@@ -466,15 +454,13 @@ export abstract class PredictionMarketExchange {
         if (
             !this._snapshot ||
             this._snapshotTTL === 0 ||
-            this._snapshot.mode !== mode ||
             Date.now() - this._snapshot.takenAt > this._snapshotTTL
         ) {
-            const markets = await this.fetchMarketsImpl(undefined, options);
+            const markets = await this.fetchMarketsImpl();
             this._snapshot = {
                 markets,
                 takenAt: Date.now(),
                 id: Math.random().toString(36).slice(2),
-                mode,
             };
         }
 
@@ -511,11 +497,8 @@ export abstract class PredictionMarketExchange {
      * fed_event = events[0]
      * print(fed_event.title, len(fed_event.markets), 'markets')
      */
-    async fetchEvents(
-        params?: EventFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedEvent[]> {
-        return this.fetchEventsImpl(params ?? {}, options);
+    async fetchEvents(params?: EventFetchParams): Promise<UnifiedEvent[]> {
+        return this.fetchEventsImpl(params ?? {});
     }
 
     /**
@@ -535,10 +518,7 @@ export abstract class PredictionMarketExchange {
      * @example-python Fetch by market ID
      * market = exchange.fetch_market(market_id='663583')
      */
-    async fetchMarket(
-        params?: MarketFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedMarket> {
+    async fetchMarket(params?: MarketFetchParams): Promise<UnifiedMarket> {
         // Try to fetch from cache first if we have loaded markets and have an ID/slug
         if (this.loadedMarkets) {
             if (params?.marketId && this.markets[params.marketId]) {
@@ -549,7 +529,7 @@ export abstract class PredictionMarketExchange {
             }
         }
 
-        const markets = await this.fetchMarkets(params, options);
+        const markets = await this.fetchMarkets(params);
         if (markets.length === 0) {
             const identifier = params?.marketId || params?.outcomeId || params?.slug || params?.eventId || params?.query || 'unknown';
             throw new MarketNotFound(identifier, this.name);
@@ -571,11 +551,8 @@ export abstract class PredictionMarketExchange {
      * @example-python Fetch by event ID
      * event = exchange.fetch_event(event_id='TRUMP25DEC')
      */
-    async fetchEvent(
-        params?: EventFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedEvent> {
-        const events = await this.fetchEvents(params, options);
+    async fetchEvent(params?: EventFetchParams): Promise<UnifiedEvent> {
+        const events = await this.fetchEvents(params);
         if (events.length === 0) {
             const identifier = params?.eventId || params?.slug || params?.query || 'unknown';
             throw new EventNotFound(identifier, this.name);
@@ -592,10 +569,7 @@ export abstract class PredictionMarketExchange {
      * Implementation for fetching/searching markets.
      * Exchanges should handle query, slug, and plain fetch cases based on params.
      */
-    protected async fetchMarketsImpl(
-        params?: MarketFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedMarket[]> {
+    protected async fetchMarketsImpl(params?: MarketFetchParams): Promise<UnifiedMarket[]> {
         throw new Error("Method fetchMarketsImpl not implemented.");
     }
 
@@ -603,10 +577,7 @@ export abstract class PredictionMarketExchange {
      * @internal
      * Implementation for searching events by keyword.
      */
-    protected async fetchEventsImpl(
-        params: EventFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedEvent[]> {
+    protected async fetchEventsImpl(params: EventFetchParams): Promise<UnifiedEvent[]> {
         throw new Error("Method fetchEventsImpl not implemented.");
     }
 
@@ -636,11 +607,7 @@ export abstract class PredictionMarketExchange {
      * @notes Polymarket: outcomeId is the CLOB Token ID. Kalshi: outcomeId is the Market Ticker.
      * @notes Resolution options: '1m' | '5m' | '15m' | '1h' | '6h' | '1d'
      */
-    async fetchOHLCV(
-        id: string,
-        params: OHLCVParams,
-        options?: RequestOptions,
-    ): Promise<PriceCandle[]> {
+    async fetchOHLCV(id: string, params: OHLCVParams): Promise<PriceCandle[]> {
         throw new Error("Method fetchOHLCV not implemented.");
     }
 
@@ -663,7 +630,7 @@ export abstract class PredictionMarketExchange {
      * print(f"Best ask: {book.asks[0].price}")
      * print(f"Spread: {(book.asks[0].price - book.bids[0].price) * 100:.2f}%")
      */
-    async fetchOrderBook(id: string, options?: RequestOptions): Promise<OrderBook> {
+    async fetchOrderBook(id: string): Promise<OrderBook> {
         throw new Error("Method fetchOrderBook not implemented.");
     }
 
@@ -687,11 +654,7 @@ export abstract class PredictionMarketExchange {
      *
      * @notes Polymarket requires an API key for trade history. Use fetchOHLCV for public historical data.
      */
-    async fetchTrades(
-        id: string,
-        params: TradesParams | HistoryFilterParams,
-        options?: RequestOptions,
-    ): Promise<Trade[]> {
+    async fetchTrades(id: string, params: TradesParams | HistoryFilterParams): Promise<Trade[]> {
         // Deprecation warning for resolution parameter
         if ('resolution' in params && params.resolution !== undefined) {
             console.warn(
@@ -788,7 +751,7 @@ export abstract class PredictionMarketExchange {
      * order = exchange.fetch_order('order-456')
      * print(f"Filled: {order.filled}/{order.amount}")
      */
-    async fetchOrder(orderId: string, options?: RequestOptions): Promise<Order> {
+    async fetchOrder(orderId: string): Promise<Order> {
         throw new Error("Method fetchOrder not implemented.");
     }
 
@@ -815,31 +778,19 @@ export abstract class PredictionMarketExchange {
      * @example-python Fetch orders for a specific market
      * orders = exchange.fetch_open_orders('FED-25JAN')
      */
-    async fetchOpenOrders(
-        marketId?: string,
-        options?: RequestOptions,
-    ): Promise<Order[]> {
+    async fetchOpenOrders(marketId?: string): Promise<Order[]> {
         throw new Error("Method fetchOpenOrders not implemented.");
     }
 
-    async fetchMyTrades(
-        params?: MyTradesParams,
-        options?: RequestOptions,
-    ): Promise<UserTrade[]> {
+    async fetchMyTrades(params?: MyTradesParams): Promise<UserTrade[]> {
         throw new Error("Method fetchMyTrades not implemented.");
     }
 
-    async fetchClosedOrders(
-        params?: OrderHistoryParams,
-        options?: RequestOptions,
-    ): Promise<Order[]> {
+    async fetchClosedOrders(params?: OrderHistoryParams): Promise<Order[]> {
         throw new Error("Method fetchClosedOrders not implemented.");
     }
 
-    async fetchAllOrders(
-        params?: OrderHistoryParams,
-        options?: RequestOptions,
-    ): Promise<Order[]> {
+    async fetchAllOrders(params?: OrderHistoryParams): Promise<Order[]> {
         throw new Error("Method fetchAllOrders not implemented.");
     }
 
@@ -861,7 +812,7 @@ export abstract class PredictionMarketExchange {
      *     print(f"{pos.outcome_label}: {pos.size} @ ${pos.entry_price}")
      *     print(f"Unrealized P&L: ${pos.unrealized_pnl:.2f}")
      */
-    async fetchPositions(options?: RequestOptions): Promise<Position[]> {
+    async fetchPositions(): Promise<Position[]> {
         throw new Error("Method fetchPositions not implemented.");
     }
 
@@ -878,7 +829,7 @@ export abstract class PredictionMarketExchange {
      * balances = exchange.fetch_balance()
      * print(f"Available: ${balances[0].available}")
      */
-    async fetchBalance(options?: RequestOptions): Promise<Balance[]> {
+    async fetchBalance(): Promise<Balance[]> {
         throw new Error("Method fetchBalance not implemented.");
     }
 
@@ -1255,11 +1206,7 @@ export abstract class PredictionMarketExchange {
      *     book = exchange.watch_order_book(outcome.outcome_id)
      *     print(f"Bid: {book.bids[0].price} Ask: {book.asks[0].price}")
      */
-    async watchOrderBook(
-        id: string,
-        limit?: number,
-        options?: RequestOptions,
-    ): Promise<OrderBook> {
+    async watchOrderBook(id: string, limit?: number): Promise<OrderBook> {
         throw new Error(`watchOrderBook() is not supported by ${this.name}`);
     }
 
@@ -1286,12 +1233,7 @@ export abstract class PredictionMarketExchange {
      *     for trade in trades:
      *         print(f"{trade.side} {trade.amount} @ {trade.price}")
      */
-    async watchTrades(
-        id: string,
-        since?: number,
-        limit?: number,
-        options?: RequestOptions,
-    ): Promise<Trade[]> {
+    async watchTrades(id: string, since?: number, limit?: number): Promise<Trade[]> {
         throw new Error(`watchTrades() is not supported by ${this.name}`);
     }
 

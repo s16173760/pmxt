@@ -1,4 +1,4 @@
-import { MarketFetchParams, RequestOptions } from "../../BaseExchange";
+import { MarketFetchParams } from "../../BaseExchange";
 import { UnifiedMarket } from "../../types";
 import { mapMarketToUnified } from "./utils";
 import { kalshiErrorMapper } from "./errors";
@@ -104,37 +104,36 @@ export function resetCache(): void {
 export async function fetchMarkets(
   params: MarketFetchParams | undefined,
   callApi: CallApi,
-  options?: RequestOptions,
 ): Promise<UnifiedMarket[]> {
   try {
     // Handle marketId lookup (Kalshi marketId is the ticker)
     if (params?.marketId) {
-      return await fetchMarketsBySlug(params.marketId, callApi, options);
+      return await fetchMarketsBySlug(params.marketId, callApi);
     }
 
     // Handle slug-based lookup (event ticker)
     if (params?.slug) {
-      return await fetchMarketsBySlug(params.slug, callApi, options);
+      return await fetchMarketsBySlug(params.slug, callApi);
     }
 
     // Handle outcomeId lookup (strip -NO suffix, use as ticker)
     if (params?.outcomeId) {
       const ticker = params.outcomeId.replace(/-NO$/, "");
-      return await fetchMarketsBySlug(ticker, callApi, options);
+      return await fetchMarketsBySlug(ticker, callApi);
     }
 
     // Handle eventId lookup (event ticker works the same way)
     if (params?.eventId) {
-      return await fetchMarketsBySlug(params.eventId, callApi, options);
+      return await fetchMarketsBySlug(params.eventId, callApi);
     }
 
     // Handle query-based search
     if (params?.query) {
-      return await searchMarkets(params.query, params, callApi, options);
+      return await searchMarkets(params.query, params, callApi);
     }
 
     // Default: fetch markets
-    return await fetchMarketsDefault(params, callApi, options);
+    return await fetchMarketsDefault(params, callApi);
   } catch (error: any) {
     throw kalshiErrorMapper.mapError(error);
   }
@@ -143,7 +142,6 @@ export async function fetchMarkets(
 async function fetchMarketsBySlug(
   eventTicker: string,
   callApi: CallApi,
-  options?: RequestOptions,
 ): Promise<UnifiedMarket[]> {
   // Kalshi API expects uppercase tickers, but URLs use lowercase
   const normalizedTicker = eventTicker.toUpperCase();
@@ -176,7 +174,7 @@ async function fetchMarketsBySlug(
   const markets = event.markets || [];
 
   for (const market of markets) {
-    const unifiedMarket = mapMarketToUnified(event, market, options);
+    const unifiedMarket = mapMarketToUnified(event, market);
     if (unifiedMarket) {
       unifiedMarkets.push(unifiedMarket);
     }
@@ -189,14 +187,12 @@ async function searchMarkets(
   query: string,
   params: MarketFetchParams | undefined,
   callApi: CallApi,
-  options?: RequestOptions,
 ): Promise<UnifiedMarket[]> {
   // We must fetch ALL markets to search them locally since we don't have server-side search
   const searchLimit = 250000;
   const markets = await fetchMarketsDefault(
     { ...params, limit: searchLimit },
     callApi,
-    options,
   );
   const lowerQuery = query.toLowerCase();
   const searchIn = params?.searchIn || "title"; // Default to title-only search
@@ -219,7 +215,6 @@ async function searchMarkets(
 async function fetchMarketsDefault(
   params: MarketFetchParams | undefined,
   callApi: CallApi,
-  options?: RequestOptions,
 ): Promise<UnifiedMarket[]> {
   const limit = params?.limit || 250000;
   const offset = params?.offset || 0;
@@ -290,7 +285,7 @@ async function fetchMarketsDefault(
 
       const markets = event.markets || [];
       for (const market of markets) {
-        const unifiedMarket = mapMarketToUnified(event, market, options);
+        const unifiedMarket = mapMarketToUnified(event, market);
         if (unifiedMarket) {
           allMarkets.push(unifiedMarket);
         }

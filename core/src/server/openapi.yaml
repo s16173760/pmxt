@@ -82,12 +82,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - $ref: '#/components/schemas/MarketFilterParams'
-                      - type: object
+                    $ref: '#/components/schemas/MarketFilterParams'
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -122,17 +119,14 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - type: object
-                        properties:
-                          limit:
-                            type: number
-                          cursor:
-                            type: string
-                      - type: object
+                    type: object
+                    properties:
+                      limit:
+                        type: number
+                      cursor:
+                        type: string
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -168,12 +162,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - $ref: '#/components/schemas/EventFetchParams'
-                      - type: object
+                    $ref: '#/components/schemas/EventFetchParams'
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -208,12 +199,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - $ref: '#/components/schemas/MarketFilterParams'
-                      - type: object
+                    $ref: '#/components/schemas/MarketFilterParams'
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -246,12 +234,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - $ref: '#/components/schemas/EventFetchParams'
-                      - type: object
+                    $ref: '#/components/schemas/EventFetchParams'
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -285,12 +270,11 @@ paths:
                 args:
                   type: array
                   minItems: 2
-                  maxItems: 3
+                  maxItems: 2
                   items:
                     oneOf:
                       - type: string
                       - $ref: '#/components/schemas/OHLCVParams'
-                      - type: object
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
               required:
@@ -325,12 +309,10 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 1
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - type: string
-                      - type: object
+                    type: string
+                  minItems: 1
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
               required:
@@ -366,14 +348,13 @@ paths:
                 args:
                   type: array
                   minItems: 2
-                  maxItems: 3
+                  maxItems: 2
                   items:
                     oneOf:
                       - type: string
                       - oneOf:
                           - $ref: '#/components/schemas/TradesParams'
                           - $ref: '#/components/schemas/HistoryFilterParams'
-                      - type: object
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
               required:
@@ -480,12 +461,10 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 1
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - type: string
-                      - type: object
+                    type: string
+                  minItems: 1
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
               required:
@@ -518,12 +497,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - type: string
-                      - type: object
+                    type: string
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -556,12 +532,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - $ref: '#/components/schemas/MyTradesParams'
-                      - type: object
+                    $ref: '#/components/schemas/MyTradesParams'
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -593,12 +566,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - $ref: '#/components/schemas/OrderHistoryParams'
-                      - type: object
+                    $ref: '#/components/schemas/OrderHistoryParams'
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -630,12 +600,9 @@ paths:
               properties:
                 args:
                   type: array
-                  minItems: 0
-                  maxItems: 2
+                  maxItems: 1
                   items:
-                    oneOf:
-                      - $ref: '#/components/schemas/OrderHistoryParams'
-                      - type: object
+                    $ref: '#/components/schemas/OrderHistoryParams'
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -667,9 +634,8 @@ paths:
               properties:
                 args:
                   type: array
-                  maxItems: 1
-                  items:
-                    type: object
+                  maxItems: 0
+                  items: {}
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -702,9 +668,8 @@ paths:
               properties:
                 args:
                   type: array
-                  maxItems: 1
-                  items:
-                    type: object
+                  maxItems: 0
+                  items: {}
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -918,12 +883,11 @@ paths:
                 args:
                   type: array
                   minItems: 1
-                  maxItems: 3
+                  maxItems: 2
                   items:
                     oneOf:
                       - type: string
                       - type: number
-                      - type: object
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
               required:
@@ -959,13 +923,12 @@ paths:
                 args:
                   type: array
                   minItems: 1
-                  maxItems: 4
+                  maxItems: 3
                   items:
                     oneOf:
                       - type: string
                       - type: number
                       - type: number
-                      - type: object
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
               required:
@@ -987,39 +950,6 @@ paths:
       description: >-
         Watch trade executions in real-time via WebSocket. Returns a promise that resolves with the next trade(s). Call
         repeatedly in a loop to stream updates (CCXT Pro pattern).
-  '/api/{exchange}/testDummyMethod':
-    post:
-      summary: Test Dummy Method
-      operationId: testDummyMethod
-      parameters:
-        - $ref: '#/components/parameters/ExchangeParam'
-      requestBody:
-        content:
-          application/json:
-            schema:
-              title: TestDummyMethodRequest
-              type: object
-              properties:
-                args:
-                  type: array
-                  maxItems: 1
-                  items:
-                    type: string
-                credentials:
-                  $ref: '#/components/schemas/ExchangeCredentials'
-      responses:
-        '200':
-          description: Test Dummy Method response
-          content:
-            application/json:
-              schema:
-                allOf:
-                  - $ref: '#/components/schemas/BaseResponse'
-                  - type: object
-                    properties:
-                      data:
-                        type: string
-      description: Test method for auto-generation verification.
   '/api/{exchange}/close':
     post:
       summary: Close
@@ -1046,6 +976,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BaseResponse'
+      description: >-
+        Close all WebSocket connections and clean up resources. Call this when you're done streaming to properly release
+        connections.
 components:
   parameters:
     ExchangeParam:

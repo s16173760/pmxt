@@ -1,12 +1,6 @@
 import WebSocket from "ws";
 import { OrderBook, Trade, OrderLevel } from "../../types";
-import { RequestOptions } from "../../BaseExchange";
 import { KalshiAuth } from "./auth";
-import {
-  getKalshiPriceContext,
-  fromKalshiCents,
-  invertKalshiCents,
-} from "./price";
 
 interface QueuedPromise<T> {
   resolve: (value: T | PromiseLike<T>) => void;
@@ -32,8 +26,6 @@ export class KalshiWebSocket {
   private orderBookResolvers = new Map<string, QueuedPromise<OrderBook>[]>();
   private tradeResolvers = new Map<string, QueuedPromise<Trade[]>[]>();
   private orderBooks = new Map<string, OrderBook>();
-  private orderBookOptions = new Map<string, RequestOptions | undefined>();
-  private tradeOptions = new Map<string, RequestOptions | undefined>();
   private subscribedOrderBookTickers = new Set<string>();
   private subscribedTradeTickers = new Set<string>();
   private messageIdCounter = 1;
@@ -230,8 +222,6 @@ export class KalshiWebSocket {
 
   private handleOrderbookSnapshot(data: any) {
     const ticker = data.market_ticker;
-    const options = this.orderBookOptions.get(ticker);
-    const priceContext = getKalshiPriceContext(options);
 
     // Kalshi orderbook structure:
     // yes: [{ price: number (cents), quantity: number }, ...]
@@ -239,7 +229,7 @@ export class KalshiWebSocket {
 
     const bids: OrderLevel[] = (data.yes || [])
       .map((level: any) => {
-        const price = fromKalshiCents(level.price || level[0], priceContext);
+        const price = (level.price || level[0]) / 100;
         const size =
           (level.quantity !== undefined
             ? level.quantity
@@ -252,7 +242,7 @@ export class KalshiWebSocket {
 
     const asks: OrderLevel[] = (data.no || [])
       .map((level: any) => {
-        const price = invertKalshiCents(level.price || level[0], priceContext);
+        const price = (100 - (level.price || level[0])) / 100;
         const size =
           (level.quantity !== undefined
             ? level.quantity
@@ -276,8 +266,6 @@ export class KalshiWebSocket {
   private handleOrderbookDelta(data: any) {
     const ticker = data.market_ticker;
     const existing = this.orderBooks.get(ticker);
-    const options = this.orderBookOptions.get(ticker);
-    const priceContext = getKalshiPriceContext(options);
 
     if (!existing) {
       // No snapshot yet, skip delta
@@ -286,7 +274,7 @@ export class KalshiWebSocket {
 
     // Apply delta updates
     // Kalshi sends: { price: number, delta: number, side: 'yes' | 'no' }
-    const price = fromKalshiCents(data.price, priceContext);
+    const price = data.price / 100;
     const delta =
       data.delta !== undefined
         ? data.delta
@@ -298,8 +286,8 @@ export class KalshiWebSocket {
     if (side === "yes") {
       this.applyDelta(existing.bids, price, delta, "desc");
     } else {
-      const invertedPrice = invertKalshiCents(data.price, priceContext);
-      this.applyDelta(existing.asks, invertedPrice, delta, "asc");
+      const yesPrice = (100 - data.price) / 100;
+      this.applyDelta(existing.asks, yesPrice, delta, "asc");
     }
 
     existing.timestamp = Date.now();
@@ -342,8 +330,6 @@ export class KalshiWebSocket {
 
   private handleTrade(data: any) {
     const ticker = data.market_ticker;
-    const options = this.tradeOptions.get(ticker);
-    const priceContext = getKalshiPriceContext(options);
 
     // Kalshi trade structure:
     // { trade_id, market_ticker, yes_price, no_price, count, created_time, taker_side }
@@ -378,8 +364,8 @@ export class KalshiWebSocket {
       timestamp,
       price:
         data.yes_price || data.price
-          ? fromKalshiCents(data.yes_price || data.price, priceContext)
-          : priceContext.defaultPrice,
+          ? (data.yes_price || data.price) / 100
+          : 0.5,
       amount: data.count || data.size || 0,
       side:
         data.taker_side === "yes" || data.side === "buy"
@@ -404,10 +390,7 @@ export class KalshiWebSocket {
     }
   }
 
-  async watchOrderBook(
-    ticker: string,
-    options?: RequestOptions,
-  ): Promise<OrderBook> {
+  async watchOrderBook(ticker: string): Promise<OrderBook> {
     // Ensure connection
     if (!this.isConnected) {
       await this.connect();
@@ -418,7 +401,6 @@ export class KalshiWebSocket {
       this.subscribedOrderBookTickers.add(ticker);
       this.subscribeToOrderbook(Array.from(this.subscribedOrderBookTickers));
     }
-    this.orderBookOptions.set(ticker, options);
 
     // Return a promise that resolves on the next orderbook update
     return new Promise<OrderBook>((resolve, reject) => {
@@ -429,7 +411,7 @@ export class KalshiWebSocket {
     });
   }
 
-  async watchTrades(ticker: string, options?: RequestOptions): Promise<Trade[]> {
+  async watchTrades(ticker: string): Promise<Trade[]> {
     // Ensure connection
     if (!this.isConnected) {
       await this.connect();
@@ -440,7 +422,6 @@ export class KalshiWebSocket {
       this.subscribedTradeTickers.add(ticker);
       this.subscribeToTrades(Array.from(this.subscribedTradeTickers));
     }
-    this.tradeOptions.set(ticker, options);
 
     // Return a promise that resolves on the next trade
     return new Promise<Trade[]>((resolve, reject) => {

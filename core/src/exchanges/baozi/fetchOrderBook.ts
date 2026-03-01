@@ -2,7 +2,6 @@ import { Connection } from '@solana/web3.js';
 import { OrderBook } from '../../types';
 import { fetchSingleMarket } from './fetchMarkets';
 import { baoziErrorMapper } from './errors';
-import { RequestOptions } from '../../BaseExchange';
 
 /**
  * Pari-mutuel markets don't have a real order book.
@@ -16,11 +15,10 @@ import { RequestOptions } from '../../BaseExchange';
 export async function fetchOrderBook(
     connection: Connection,
     outcomeId: string,
-    options?: RequestOptions,
 ): Promise<OrderBook> {
     try {
         const marketPubkey = outcomeId.replace(/-YES$|-NO$|-\d+$/, '');
-        const market = await fetchSingleMarket(connection, marketPubkey, options);
+        const market = await fetchSingleMarket(connection, marketPubkey);
 
         if (!market) {
             throw new Error(`Market not found: ${marketPubkey}`);

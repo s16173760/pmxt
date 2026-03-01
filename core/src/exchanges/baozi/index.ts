@@ -13,7 +13,6 @@ import {
     HistoryFilterParams,
     TradesParams,
     ExchangeCredentials,
-    RequestOptions,
 } from '../../BaseExchange';
 import {
     UnifiedMarket,
@@ -118,26 +117,20 @@ export class BaoziExchange extends PredictionMarketExchange {
     // Market Data
     // -----------------------------------------------------------------------
 
-    protected async fetchMarketsImpl(
-        params?: MarketFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedMarket[]> {
-        return fetchMarkets(this.connection, params, options);
+    protected async fetchMarketsImpl(params?: MarketFetchParams): Promise<UnifiedMarket[]> {
+        return fetchMarkets(this.connection, params);
     }
 
-    protected async fetchEventsImpl(
-        params: EventFetchParams,
-        options?: RequestOptions,
-    ): Promise<UnifiedEvent[]> {
-        return fetchEvents(this.connection, params, options);
+    protected async fetchEventsImpl(params: EventFetchParams): Promise<UnifiedEvent[]> {
+        return fetchEvents(this.connection, params);
     }
 
     async fetchOHLCV(): Promise<PriceCandle[]> {
         return fetchOHLCV();
     }
 
-    async fetchOrderBook(id: string, options?: RequestOptions): Promise<OrderBook> {
-        return fetchOrderBook(this.connection, id, options);
+    async fetchOrderBook(id: string): Promise<OrderBook> {
+        return fetchOrderBook(this.connection, id);
     }
 
     async fetchTrades(): Promise<Trade[]> {
@@ -148,7 +141,7 @@ export class BaoziExchange extends PredictionMarketExchange {
     // User Data
     // -----------------------------------------------------------------------
 
-    async fetchBalance(options?: RequestOptions): Promise<Balance[]> {
+    async fetchBalance(): Promise<Balance[]> {
         try {
             const auth = this.ensureAuth();
             const lamports = await this.connection.getBalance(auth.getPublicKey());
@@ -165,7 +158,7 @@ export class BaoziExchange extends PredictionMarketExchange {
         }
     }
 
-    async fetchPositions(options?: RequestOptions): Promise<Position[]> {
+    async fetchPositions(): Promise<Position[]> {
         try {
             const auth = this.ensureAuth();
             const userPubkey = auth.getPublicKey();
@@ -204,7 +197,7 @@ export class BaoziExchange extends PredictionMarketExchange {
                         const marketInfo = await this.connection.getAccountInfo(marketPda);
                         if (marketInfo) {
                             const market = parseMarket(marketInfo.data);
-                            const unified = mapBooleanToUnified(market, marketPda.toString(), options);
+                            const unified = mapBooleanToUnified(market, marketPda.toString());
                             currentYesPrice = unified.yes?.price ?? 0;
                             currentNoPrice = unified.no?.price ?? 0;
                             marketTitle = market.question;
@@ -260,7 +253,7 @@ export class BaoziExchange extends PredictionMarketExchange {
                         const marketInfo = await this.connection.getAccountInfo(racePda);
                         if (marketInfo) {
                             const raceMarket = parseRaceMarket(marketInfo.data);
-                            const unified = mapRaceToUnified(raceMarket, racePdaStr, options);
+                            const unified = mapRaceToUnified(raceMarket, racePdaStr);
                             outcomePrices = unified.outcomes.map(o => o.price);
                             outcomeLabels = unified.outcomes.map(o => o.label);
                         }
@@ -504,11 +497,11 @@ export class BaoziExchange extends PredictionMarketExchange {
     // WebSocket
     // -----------------------------------------------------------------------
 
-    async watchOrderBook(id: string, limit?: number, options?: RequestOptions): Promise<OrderBook> {
+    async watchOrderBook(id: string): Promise<OrderBook> {
         if (!this.ws) {
             this.ws = new BaoziWebSocket();
         }
-        return this.ws.watchOrderBook(this.connection, id, options);
+        return this.ws.watchOrderBook(this.connection, id);
     }
 
     async watchTrades(): Promise<Trade[]> {

@@ -105,56 +105,6 @@ describe("KalshiExchange", () => {
       const markets = await exchange.fetchMarkets();
       expect(markets).toBeDefined();
     });
-
-    it("should return raw prices for fetchTrades when mode is raw", async () => {
-      const mockResponse = {
-        data: {
-          trades: [
-            {
-              trade_id: "trade-1",
-              created_time: "2026-01-13T12:00:00Z",
-              yes_price: 55,
-              count: 10,
-              taker_side: "yes",
-            },
-          ],
-        },
-      };
-      (mockAxiosInstance.request as jest.Mock).mockResolvedValue(
-        mockResponse,
-      );
-
-      const trades = await exchange.fetchTrades(
-        "TEST-MARKET",
-        { limit: 1 },
-        { mode: "raw" },
-      );
-
-      expect(trades).toHaveLength(1);
-      expect(trades[0].price).toBe(55);
-    });
-
-    it("should return raw prices for fetchOrderBook when mode is raw", async () => {
-      exchange = new KalshiExchange(mockCredentials);
-      const mockResponse = {
-        data: {
-          orderbook: {
-            yes: [[55, 10]],
-            no: [[45, 5]],
-          },
-        },
-      };
-      (mockAxiosInstance.request as jest.Mock).mockResolvedValue(
-        mockResponse,
-      );
-
-      const book = await exchange.fetchOrderBook("TEST-MARKET", {
-        mode: "raw",
-      });
-
-      expect(book.bids[0].price).toBe(55);
-      expect(book.asks[0].price).toBe(55);
-    });
   });
 
   describe("Trading Methods", () => {
