@@ -1,4 +1,3 @@
-
 // ----------------------------------------------------------------------------
 // Core Data Models
 // ----------------------------------------------------------------------------
@@ -114,6 +113,11 @@ export interface WatchedAddressActivity {
     balances?: Balance[];
     /** Unix timestamp (ms) of this snapshot */
     timestamp: number;
+}
+
+export interface QueuedPromise<T> {
+    resolve: (value: T | PromiseLike<T>) => void;
+    reject: (reason?: any) => void;
 }
 
 // ----------------------------------------------------------------------------

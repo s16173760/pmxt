@@ -1,6 +1,7 @@
 import WebSocket from 'ws';
-import { AddressSubscriber, ActivityBuilder, WatchedEventActivity, AddressWatcherConfig } from './watcher';
 import { Trade } from '../types';
+import { ActivityBuilder, AddressSubscriber, AddressWatcherConfig, WatchedEventActivity } from './watcher';
+
 
 // ----------------------------------------------------------------------------
 // GoldSky Config
@@ -60,7 +61,9 @@ export interface GoldSkyConfig {
     reconnectDelayMs?: number;
 }
 
-export interface GoldSkyWatcherConfig extends GoldSkyConfig, Pick<AddressWatcherConfig, "pollMs"> {}
+export interface GoldSkyWatcherConfig extends GoldSkyConfig, Pick<AddressWatcherConfig, "pollMs"> {
+}
+
 // ----------------------------------------------------------------------------
 // Default subscription builders
 // ----------------------------------------------------------------------------
@@ -239,7 +242,7 @@ export const buildPolymarketTradesActivity: ActivityBuilder = (data, address, ty
             price: shareAmount > 0 ? usdcAmount / shareAmount : 0,
             amount: shareAmount,
             side: isBuying ? 'buy' : 'sell',
-            outcomeId: isMaker? f.makerAssetId : f.takerAssetId,
+            outcomeId: isMaker ? f.makerAssetId : f.takerAssetId,
         };
     });
 
@@ -320,6 +323,7 @@ export class GoldSkySubscriber implements AddressSubscriber {
     private connectPromise?: Promise<void>;
     private reconnectTimer?: ReturnType<typeof setTimeout>;
     private closed = false;
+    private readonly wsEndpoint: string;
 
     private callbacks = new Map<string, (data: unknown) => void>();   // address → onEvent callback
     private subscriptionIds = new Map<string, string>();               // address → WS subscription id
@@ -327,6 +331,7 @@ export class GoldSkySubscriber implements AddressSubscriber {
 
     constructor(config: GoldSkyConfig) {
         this.config = config;
+        this.wsEndpoint = config.wsEndpoint ?? "https://https://api.goldsky.com/api/public/project_cl8ylkiw00krx0hvza0qw17vn/subgraphs/uniswap-v3-base/1.0.0/gn";
     }
 
     // --------------------------------------------------------------------------
@@ -383,7 +388,10 @@ export class GoldSkySubscriber implements AddressSubscriber {
         this.connected = false;
         this.connectPromise = undefined;
         if (this.ws) {
-            try { this.ws.close(); } catch { /* ignore */ }
+            try {
+                this.ws.close();
+            } catch { /* ignore */
+            }
             this.ws = undefined;
         }
     }
@@ -400,7 +408,7 @@ export class GoldSkySubscriber implements AddressSubscriber {
         if (this.connectPromise) return this.connectPromise;
 
         this.connectPromise = new Promise<void>((resolve, reject) => {
-            const wsEndpoint = this.config.wsEndpoint ?? "https://https://api.goldsky.com/api/public/project_cl8ylkiw00krx0hvza0qw17vn/subgraphs/uniswap-v3-base/1.0.0/gn";
+            const wsEndpoint = this.wsEndpoint;
             const ws = new WebSocket(wsEndpoint, ['graphql-transport-ws']);
             this.ws = ws;
 
@@ -420,7 +428,11 @@ export class GoldSkySubscriber implements AddressSubscriber {
 
             ws.on('message', (raw: WebSocket.RawData) => {
                 let msg: any;
-                try { msg = JSON.parse(raw.toString()); } catch { return; }
+                try {
+                    msg = JSON.parse(raw.toString());
+                } catch {
+                    return;
+                }
 
                 switch (msg.type) {
                     case 'connection_ack':
