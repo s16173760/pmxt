@@ -13,24 +13,24 @@ import {
 } from '../../BaseExchange';
 import { AuthenticationError } from '../../errors';
 import {
+    buildLimitlessBalanceActivity,
+    LIMITLESS_DEFAULT_SUBSCRIPTION,
+    WatcherConfig
+} from '../../subscriber/external/goldsky';
+import {
     Balance,
     CreateOrderParams,
     Order,
     OrderBook,
     Position,
     PriceCandle,
+    SubscribedAddressSnapshot,
+    SubscriptionOption,
     Trade,
     UnifiedEvent,
     UnifiedMarket,
     UserTrade,
-    WatchedAddressActivity,
-    WatchedAddressOption,
 } from '../../types';
-import {
-    buildLimitlessBalanceActivity,
-    GoldSkyWatcherConfig,
-    LIMITLESS_DEFAULT_SUBSCRIPTION
-} from '../../utils/goldsky';
 import { parseOpenApiSpec } from '../../utils/openapi';
 import { limitlessApiSpec } from './api';
 import { LimitlessAuth } from './auth';
@@ -43,7 +43,7 @@ import { fetchOrderBook } from './fetchOrderBook';
 import { fetchTrades } from './fetchTrades';
 import { LimitlessWebSocket, LimitlessWebSocketConfig } from './websocket';
 
-export type { LimitlessWebSocketConfig, GoldSkyWatcherConfig };
+export type { LimitlessWebSocketConfig, WatcherConfig };
 export { LIMITLESS_DEFAULT_SUBSCRIPTION, buildLimitlessBalanceActivity };
 
 export interface LimitlessExchangeOptions {
@@ -456,8 +456,8 @@ export class LimitlessExchange extends PredictionMarketExchange {
      */
     async watchAddress(
         address: string,
-        types: WatchedAddressOption[] = ['trades', 'positions', 'balances'],
-    ): Promise<WatchedAddressActivity> {
+        types: SubscriptionOption[] = ['trades', 'positions', 'balances'],
+    ): Promise<SubscribedAddressSnapshot> {
         return this.ensureWs().watchAddress(address, types);
     }
 
@@ -559,13 +559,13 @@ export class LimitlessExchange extends PredictionMarketExchange {
 
     /**
      * Fetch a composite activity snapshot for a Base-chain address from the Limitless
-     * public portfolio API and Base RPC. Used internally by the AddressSubscriber polling loop.
+     * public portfolio API and Base RPC. Used internally by the BaseSubscriber polling loop.
      */
     private async fetchWatchedAddressActivity(
         address: string,
-        types: WatchedAddressOption[],
-    ): Promise<WatchedAddressActivity> {
-        const result: WatchedAddressActivity = { address, timestamp: Date.now() };
+        types: SubscriptionOption[],
+    ): Promise<SubscribedAddressSnapshot> {
+        const result: SubscribedAddressSnapshot = { address, timestamp: Date.now() };
         const fetches: Promise<void>[] = [];
 
         // Limitless has no public per-address trades endpoint; return empty.

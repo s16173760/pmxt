@@ -1,52 +1,14 @@
-import { Balance, Position, QueuedPromise, Trade, WatchedAddressActivity, WatchedAddressOption } from '../types';
+import { Balance, Position, QueuedPromise, Trade } from '../types';
+import {
+    BaseSubscriber,
+    SubscribedActivityBuilder,
+    SubscribedAddressSnapshot,
+    SubscriberConfig,
+    SubscriptionOption
+} from "./base";
 
-export type FetchFn = (address: string, types: WatchedAddressOption[]) => Promise<WatchedAddressActivity>;
+export type FetchFn = (address: string, types: SubscriptionOption[]) => Promise<SubscribedAddressSnapshot>;
 
-/**
- * Partial activity constructed from a watched event's on-chain data.
- * Only the types that could be fully derived from the event are present.
- */
-export type WatchedEventActivity = Partial<Omit<WatchedAddressActivity, 'address' | 'timestamp'>>;
-
-/**
- * Tries to build a partial WatchedAddressActivity from raw watched event data.
- *
- * Data is the raw GraphQL payload, the watched address, the requested types,
- * and the last known activity snapshot.
- *
- * Return an `WatchedEventActivity` object containing only the types you can fully
- * populate from the event — the watcher will fetch the remaining types via
- * REST/RPC. Return `null` to fall back to a full REST/RPC fetch for all options.
- */
-export type ActivityBuilder = (
-    data: unknown,
-    address: string,
-    types: WatchedAddressOption[],
-    lastActivity?: WatchedAddressActivity | null,
-) => WatchedEventActivity | null;
-
-// ----------------------------------------------------------------------------
-// AddressSubscriber interface
-// ----------------------------------------------------------------------------
-
-/**
- * Optional subscription that notifies the watcher of on-chain activity for a
- * watched address.
- */
-export interface AddressSubscriber {
-    /**
-     * Start receiving notifications for `address`.
-     * Resolves once the subscription is active, or throws if the watcher
-     * cannot be set up (the watcher will fall back to polling-only on error).
-     */
-    subscribe(address: string, onEvent: (data: unknown) => void): Promise<void>;
-
-    /** Stop receiving notifications for `address`. */
-    unsubscribe(address: string): void;
-
-    /** Tear down all subscriptions and close underlying connections. */
-    close(): void;
-}
 
 // ----------------------------------------------------------------------------
 // Configs
@@ -63,23 +25,30 @@ export interface AddressWatcherConfig {
      * `pollMs` intervals and calls `subscriber.subscribe()` for each address so
      * that on-chain events can be delivered immediately.
      */
-    subscriber?: AddressSubscriber;
+    subscriber?: BaseSubscriber;
+
     /**
-     * Optional function to extract partial activity from raw subscribed event
-     * data. It should be provided with `subscriber` to take effects.
-     * When provided, the watcher calls this before falling back to a
-     * full REST/RPC fetch.
+     * Optional function to extract partial activity directly from the raw
+     * subscription event data, avoiding REST/RPC calls for the types
+     * it can populate.
      *
-     * - Return an `WatchedEventActivity` with only the types you can fully populate
-     *   from the event data — the watcher will fetch the remaining types via
-     *   REST/RPC.
-     * - Return `null` to fall back to a full fetch for all requested types.
+     * Pair with the matching subscription builder in GoldSkySubscriber:
+     * - `POLYMARKET_TRADES_SUBSCRIPTION` + `buildPolymarketTradesActivity`
+     * - `LIMITLESS_DEFAULT_SUBSCRIPTION` + `buildLimitlessBalanceActivity`
+     *
+     * Return `null` or omit this field to fall back to a full REST/RPC fetch
+     * for every trigger event.
      */
-    buildActivity?: ActivityBuilder;
+    buildActivity?: SubscribedActivityBuilder;
 }
 
+export interface WatcherConfig extends Omit<SubscriberConfig, "buildSubscription">,
+    Pick<AddressWatcherConfig, "pollMs"> {
+}
+
+
 // ----------------------------------------------------------------------------
-// WatcherManager Class
+// AddressWatcher Class
 // ----------------------------------------------------------------------------
 
 /**
@@ -87,10 +56,10 @@ export interface AddressWatcherConfig {
  * subscriber is not available. And it resolves waiting promises whenever a change is
  * detected.
  *
- * When an `AddressSubscriber` is supplied the watcher is push-driven:
+ * When an `BaseSubscriber` is supplied the watcher is push-driven:
  * - The subscription fires immediately on on-chain events, bypassing the poll interval.
  * - If a `buildActivity` function is also supplied, the watcher first tries to
- *   construct a partial `WatchedAddressActivity` from the raw event data. Only the
+ *   construct a partial `SubscribedAddressSnapshot` from the raw event data. Only the
  *   types that cannot be derived from the event are fetched via REST/RPC.
  *
  * Without a subscriber, the watcher polls every `pollMs` milliseconds.
@@ -99,17 +68,17 @@ export interface AddressWatcherConfig {
  * - First `watch()` call → initial snapshot returned immediately.
  * - Subsequent calls → block until the next detected change.
  */
-export class WatcherManager {
+export class AddressWatcher {
     private pollTimers = new Map<string, ReturnType<typeof setInterval>>();
-    private lastState = new Map<string, WatchedAddressActivity>();
-    private watchedTypes = new Map<string, WatchedAddressOption[]>();
+    private lastState = new Map<string, SubscribedAddressSnapshot>();
+    private watchedTypes = new Map<string, SubscriptionOption[]>();
     private assetIdResolvers = new Map<string, QueuedPromise<Trade[]>[]>();
-    private resolvers = new Map<string, QueuedPromise<WatchedAddressActivity>[]>();
+    private resolvers = new Map<string, QueuedPromise<SubscribedAddressSnapshot>[]>();
 
     private readonly pollMs: number;
     private readonly fetchFn: FetchFn;
-    private readonly subscriber?: AddressSubscriber;
-    private readonly buildActivity?: ActivityBuilder;
+    private readonly subscriber?: BaseSubscriber;
+    private readonly buildActivity?: SubscribedActivityBuilder;
 
     constructor(fetchFn: FetchFn, config: AddressWatcherConfig = {}) {
         this.fetchFn = fetchFn;
@@ -124,11 +93,11 @@ export class WatcherManager {
      * @param address - Public wallet address to watch
      * @param types - Subset of activity to watch
      * @param assetId - Optional asset id to filter activity changes.
-     * @returns Promise that resolves with the latest WatchedAddressActivity snapshot
+     * @returns Promise that resolves with the latest SubscribedAddressSnapshot snapshot
      */
-    watch(address: string, types: WatchedAddressOption[], assetId: string): Promise<Trade[]>;
-    watch(address: string, types: WatchedAddressOption[]): Promise<WatchedAddressActivity>;
-    async watch(address: string, types: WatchedAddressOption[], assetId?: string): Promise<WatchedAddressActivity | Trade[]> {
+    watch(address: string, types: SubscriptionOption[], assetId: string): Promise<Trade[]>;
+    watch(address: string, types: SubscriptionOption[]): Promise<SubscribedAddressSnapshot>;
+    async watch(address: string, types: SubscriptionOption[], assetId?: string): Promise<SubscribedAddressSnapshot | Trade[]> {
         const key = address.toLowerCase();
 
         if (!this.watchedTypes.has(key)) {
@@ -141,7 +110,7 @@ export class WatcherManager {
                     needTimer = false;
                 } catch (err: any) {
                     console.warn(
-                        `[AddressSubscriber] Address subscription failed for ${address}, ` +
+                        `[BaseSubscriber] Address subscription failed for ${address}, ` +
                         `falling back to polling only with interval ${this.pollMs}: ${err?.message ?? err}`,
                     );
                 }
@@ -175,7 +144,7 @@ export class WatcherManager {
             });
         }
 
-        return new Promise<WatchedAddressActivity>((resolve, reject) => {
+        return new Promise<SubscribedAddressSnapshot>((resolve, reject) => {
             if (!this.resolvers.has(key)) {
                 this.resolvers.set(key, []);
             }
@@ -253,8 +222,8 @@ export class WatcherManager {
         }
 
         try {
-            const missingTypes = types.filter(t => !(t in partial)) as WatchedAddressOption[];
-            let merged: WatchedAddressActivity;
+            const missingTypes = types.filter(t => !(t in partial)) as SubscriptionOption[];
+            let merged: SubscribedAddressSnapshot;
 
             if (missingTypes.length > 0) {
                 const fetched = await this.fetchFn(address, missingTypes);
@@ -307,7 +276,7 @@ export class WatcherManager {
         }
     }
 
-    private dispatchAssetResolvers(addrKey: string, activity: WatchedAddressActivity): void {
+    private dispatchAssetResolvers(addrKey: string, activity: SubscribedAddressSnapshot): void {
         for (const [assetKey, resolvers] of this.assetIdResolvers) {
             if (!assetKey.startsWith(`${addrKey} `) || !resolvers.length) continue;
             const assetId = assetKey.slice(addrKey.length + 1);
@@ -319,7 +288,7 @@ export class WatcherManager {
         }
     }
 
-    private activitiesChanged(prev: WatchedAddressActivity, curr: WatchedAddressActivity): boolean {
+    private activitiesChanged(prev: SubscribedAddressSnapshot, curr: SubscribedAddressSnapshot): boolean {
         // Trades: count or most-recent ID changed
         if (prev.trades !== undefined && curr.trades !== undefined) {
             if (prev.trades.length !== curr.trades.length) return true;

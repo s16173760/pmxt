@@ -1,7 +1,12 @@
 import { ILogger, WebSocketClient, WebSocketConfig } from '@limitless-exchange/sdk';
-import { OrderBook, Trade, WatchedAddressActivity, WatchedAddressOption } from '../../types';
-import { GoldSkySubscriber, GoldSkyWatcherConfig } from "../../utils/goldsky";
-import { WatcherManager } from "../../utils/watcher";
+import { SubscribedAddressSnapshot, SubscriptionOption } from "../../subscriber/base";
+import {
+    buildLimitlessBalanceActivity,
+    GoldSkySubscriber,
+    LIMITLESS_DEFAULT_SUBSCRIPTION
+} from "../../subscriber/external/goldsky";
+import { AddressWatcher, WatcherConfig } from "../../subscriber/watcher";
+import { OrderBook, Trade } from '../../types';
 import { fetchOrderBook } from './fetchOrderBook';
 
 // Limitless uses USDC with 6 decimals
@@ -22,8 +27,8 @@ export interface LimitlessWebSocketConfig extends Partial<WebSocketConfig> {
     logger?: ILogger;
     autoReconnect?: boolean;
     reconnectDelay?: number;
-    /** GoldSky subscription configurations */
-    goldSkyConfig?: GoldSkyWatcherConfig;
+    /** Watcher subscription configurations */
+    watcherConfig?: WatcherConfig;
 }
 
 /**
@@ -36,7 +41,7 @@ export interface LimitlessWebSocketConfig extends Partial<WebSocketConfig> {
  */
 export class LimitlessWebSocket {
     private client: WebSocketClient;
-    private readonly watcher: WatcherManager;
+    private readonly watcher: AddressWatcher;
     private config: LimitlessWebSocketConfig;
     private callApi: (operationId: string, params?: Record<string, any>) => Promise<any>;
     private orderbookCallbacks: Map<string, (orderbook: OrderBook) => void> = new Map();
@@ -65,14 +70,19 @@ export class LimitlessWebSocket {
         // Set up event handlers
         this.setupEventHandlers();
 
-        const subscriber = this.config.goldSkyConfig ? new GoldSkySubscriber(this.config.goldSkyConfig) : undefined;
-        this.watcher = new WatcherManager((address, types) =>
-                this.callApi("fetchWatchedAddressActivity", { address, types })
-            , {
+        const watcherConfig = this.config.watcherConfig
+        const subscriber = watcherConfig ? new GoldSkySubscriber({
+            ...watcherConfig,
+            buildSubscription: LIMITLESS_DEFAULT_SUBSCRIPTION,
+        }) : undefined;
+        this.watcher = new AddressWatcher(
+            (address, types) => this.callApi("fetchWatchedAddressActivity", { address, types }),
+            {
                 subscriber,
-                buildActivity: this.config.goldSkyConfig?.buildActivity,
-                pollMs: this.config.goldSkyConfig?.pollMs
-            });
+                buildActivity: buildLimitlessBalanceActivity,
+                pollMs: watcherConfig?.pollMs
+            }
+        );
     }
 
     /**
@@ -252,7 +262,7 @@ export class LimitlessWebSocket {
         });
     }
 
-    async watchAddress(address: string, types: WatchedAddressOption[]): Promise<WatchedAddressActivity> {
+    async watchAddress(address: string, types: SubscriptionOption[]): Promise<SubscribedAddressSnapshot> {
         return this.watcher.watch(address, types);
     }
 

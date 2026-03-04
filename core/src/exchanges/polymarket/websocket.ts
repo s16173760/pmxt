@@ -6,9 +6,14 @@
  * which is licensed under the MIT License.
  */
 
-import { OrderBook, OrderLevel, QueuedPromise, Trade, WatchedAddressActivity, WatchedAddressOption } from '../../types';
-import { GoldSkySubscriber, GoldSkyWatcherConfig } from "../../utils/goldsky";
-import { FetchFn, WatcherManager } from "../../utils/watcher";
+import { SubscribedAddressSnapshot, SubscriptionOption } from "../../subscriber/base";
+import {
+    buildPolymarketTradesActivity,
+    GoldSkySubscriber,
+    POLYMARKET_TRADES_SUBSCRIPTION
+} from "../../subscriber/external/goldsky";
+import { AddressWatcher, FetchFn, WatcherConfig } from "../../subscriber/watcher";
+import { OrderBook, OrderLevel, QueuedPromise, Trade } from '../../types';
 
 
 export interface PolymarketWebSocketConfig {
@@ -16,8 +21,8 @@ export interface PolymarketWebSocketConfig {
     reconnectIntervalMs?: number;
     /** Pending subscription flush interval in milliseconds (default: 100) */
     flushIntervalMs?: number;
-    /** GoldSky subscription configurations */
-    goldSkyConfig?: GoldSkyWatcherConfig;
+    /** Watcher subscription configurations */
+    watcherConfig?: WatcherConfig;
 }
 
 /**
@@ -26,7 +31,7 @@ export interface PolymarketWebSocketConfig {
  */
 export class PolymarketWebSocket {
     private manager: any;
-    private readonly watcher: WatcherManager;
+    private readonly watcher: AddressWatcher;
     private orderBookResolvers = new Map<string, QueuedPromise<OrderBook>[]>();
     private tradeResolvers = new Map<string, QueuedPromise<Trade[]>[]>();
     private orderBooks = new Map<string, OrderBook>();
@@ -35,11 +40,15 @@ export class PolymarketWebSocket {
 
     constructor(fetchFn: FetchFn, config: PolymarketWebSocketConfig = {}) {
         this.config = config;
-        const subscriber = this.config.goldSkyConfig ? new GoldSkySubscriber(this.config.goldSkyConfig) : undefined;
-        this.watcher = new WatcherManager(fetchFn, {
+        const watcherConfig = this.config.watcherConfig;
+        const subscriber = watcherConfig ? new GoldSkySubscriber({
+            ...watcherConfig,
+            buildSubscription: POLYMARKET_TRADES_SUBSCRIPTION,
+        }) : undefined;
+        this.watcher = new AddressWatcher(fetchFn, {
             subscriber,
-            buildActivity: this.config.goldSkyConfig?.buildActivity,
-            pollMs: this.config.goldSkyConfig?.pollMs
+            buildActivity: buildPolymarketTradesActivity,
+            pollMs: watcherConfig?.pollMs
         });
     }
 
@@ -83,7 +92,7 @@ export class PolymarketWebSocket {
         });
     }
 
-    async watchAddress(address: string, types: WatchedAddressOption[]): Promise<WatchedAddressActivity> {
+    async watchAddress(address: string, types: SubscriptionOption[]): Promise<SubscribedAddressSnapshot> {
         return this.watcher.watch(address, types);
     }
 

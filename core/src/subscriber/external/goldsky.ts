@@ -1,8 +1,6 @@
 import WebSocket from 'ws';
-import { Trade } from '../types';
-import { ActivityBuilder, AddressSubscriber, AddressWatcherConfig, WatchedEventActivity } from './watcher';
-
-
+import { Trade } from '../../types';
+import { BaseSubscriber, SubscribedActivityBuilder, SubscribedResult, SubscriberConfig } from "../base";
 // ----------------------------------------------------------------------------
 // GoldSky Config
 // ----------------------------------------------------------------------------
@@ -10,11 +8,11 @@ import { ActivityBuilder, AddressSubscriber, AddressWatcherConfig, WatchedEventA
 /**
  * Builds the GraphQL subscription document for a given address.
  */
-export type GoldSkySubscriptionBuilder = (
+type GoldSkySubscriptionBuilder = (
     address: string,
 ) => { query: string; variables?: Record<string, any> };
 
-export interface GoldSkyConfig {
+export interface GoldSkyConfig extends Omit<SubscriberConfig, "buildSubscription"> {
     /**
      * GoldSky GraphQL WebSocket endpoint (graphql-transport-ws protocol).
      *
@@ -25,12 +23,10 @@ export interface GoldSkyConfig {
      * Format for hosted subgraphs:
      *   `wss://api.goldsky.com/api/public/<project-id>/subgraphs/<name>/<version>/gn`
      */
-    wsEndpoint?: string;
 
     /** API key sent as `Authorization: Bearer <key>` in `connection_init`.
      * If private endpoints are needed to restrict access to your subgraph
      */
-    apiKey?: string;
 
     /**
      * Builds the per-address GraphQL subscription query sent to the subgraph.
@@ -39,29 +35,6 @@ export interface GoldSkyConfig {
      * supply a custom one for your schema.
      */
     buildSubscription: GoldSkySubscriptionBuilder;
-
-    /**
-     * Optional function to extract partial activity directly from the raw
-     * GraphQL subscription event data, avoiding REST/RPC calls for the types
-     * it can populate.
-     *
-     * Pair with the matching subscription builder:
-     * - `POLYMARKET_TRADES_SUBSCRIPTION` + `buildPolymarketTradesActivity`
-     * - `LIMITLESS_DEFAULT_SUBSCRIPTION` + `buildLimitlessBalanceActivity`
-     *
-     * Return `null` or omit this field to fall back to a full REST/RPC fetch
-     * for every trigger event.
-     */
-    buildActivity?: ActivityBuilder;
-
-    /**
-     * Milliseconds between reconnect attempts after a WebSocket disconnect.
-     * @default 5000
-     */
-    reconnectDelayMs?: number;
-}
-
-export interface GoldSkyWatcherConfig extends GoldSkyConfig, Pick<AddressWatcherConfig, "pollMs"> {
 }
 
 // ----------------------------------------------------------------------------
@@ -203,7 +176,7 @@ export const LIMITLESS_DEFAULT_SUBSCRIPTION: GoldSkySubscriptionBuilder = (addre
  * - `'trades'` is not in the requested types
  * - The event contains no `orderFilleds` entries
  */
-export const buildPolymarketTradesActivity: ActivityBuilder = (data, address, types): WatchedEventActivity | null => {
+export const buildPolymarketTradesActivity: SubscribedActivityBuilder = (data, address, types): SubscribedResult | null => {
     if (!types.includes('trades')) return null;
     const filled = (data as any)?.orderFilleds;
     if (!Array.isArray(filled) || filled.length === 0) return null;
@@ -261,7 +234,7 @@ export const buildPolymarketTradesActivity: ActivityBuilder = (data, address, ty
  * - The event contains no `transfers` entries
  * - There is no previous balance snapshot to apply the delta against
  */
-export const buildLimitlessBalanceActivity: ActivityBuilder = (data, address, types, lastActivity): WatchedEventActivity | null => {
+export const buildLimitlessBalanceActivity: SubscribedActivityBuilder = (data, address, types, lastActivity): SubscribedResult | null => {
     if (!types.includes('balances')) return null;
     const transfers = (data as any)?.transfers;
     if (!Array.isArray(transfers) || transfers.length === 0) return null;
@@ -291,7 +264,7 @@ export const buildLimitlessBalanceActivity: ActivityBuilder = (data, address, ty
 // ----------------------------------------------------------------------------
 
 /**
- * Implements `AddressSubscriber` using a GoldSky (or any compatible)
+ * Implements `BaseSubscriber` using a GoldSky (or any compatible)
  * GraphQL endpoint over the `graphql-transport-ws` protocol.
  *
  * A single multiplexed WebSocket connection is shared across all watched
@@ -299,7 +272,7 @@ export const buildLimitlessBalanceActivity: ActivityBuilder = (data, address, ty
  * The connection reconnects automatically and re-subscribes on disconnect.
  *
  * Raw event data from the server is forwarded to the `onEvent` callback so
- * that the caller's `ActivityBuilder` can derive structured data from it.
+ * that the caller's `SubscribedActivityBuilder` can derive structured data from it.
  *
  * @example
  * ```ts
@@ -308,13 +281,13 @@ export const buildLimitlessBalanceActivity: ActivityBuilder = (data, address, ty
  *   buildSubscription: POLYMARKET_TRADES_SUBSCRIPTION,
  *   buildActivity: buildPolymarketTradesActivity,
  * });
- * const watcher = new AddressSubscriber(fetchFn, {
+ * const watcher = new BaseSubscriber(fetchFn, {
  *   goldSkySubscriber,
  *   buildActivity: goldSkySubscriber.config.buildActivity,
  * });
  * ```
  */
-export class GoldSkySubscriber implements AddressSubscriber {
+export class GoldSkySubscriber implements BaseSubscriber {
     readonly config: GoldSkyConfig;
 
     // WebSocket state

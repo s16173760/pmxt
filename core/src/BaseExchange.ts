@@ -1,22 +1,21 @@
-import {
-    UnifiedMarket,
-    UnifiedEvent,
-    PriceCandle,
-    CandleInterval,
-    OrderBook,
-    Trade,
-    UserTrade,
-    Order,
-    Position,
-    Balance,
-    CreateOrderParams,
-    WatchedAddressOption,
-    WatchedAddressActivity
-} from './types';
-import { getExecutionPrice, getExecutionPriceDetailed, ExecutionPriceResult } from './utils/math';
-import { MarketNotFound, EventNotFound } from './errors';
-import { Throttler } from './utils/throttler';
 import axios, { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
+import { EventNotFound, MarketNotFound } from './errors';
+import { SubscribedAddressSnapshot, SubscriptionOption } from "./subscriber/base";
+import {
+    Balance,
+    CandleInterval,
+    CreateOrderParams,
+    Order,
+    OrderBook,
+    Position,
+    PriceCandle,
+    Trade,
+    UnifiedEvent,
+    UnifiedMarket,
+    UserTrade
+} from './types';
+import { ExecutionPriceResult, getExecutionPrice, getExecutionPriceDetailed } from './utils/math';
+import { Throttler } from './utils/throttler';
 
 // ----------------------------------------------------------------------------
 // Implicit API Types (OpenAPI-driven method generation)
@@ -56,7 +55,8 @@ export interface MarketFilterParams {
     similarityThreshold?: number; // For semantic search (used by Limitless)
 }
 
-export interface MarketFetchParams extends MarketFilterParams { }
+export interface MarketFetchParams extends MarketFilterParams {
+}
 
 export interface EventFetchParams {
     query?: string;  // For keyword search
@@ -229,39 +229,13 @@ export interface PaginatedMarketsResult {
 export abstract class PredictionMarketExchange {
     [key: string]: any; // Allow dynamic method assignment for implicit API
 
-    protected credentials?: ExchangeCredentials;
     public verbose: boolean = false;
     public http: AxiosInstance;
     public enableRateLimit: boolean = true;
-    private _rateLimit: number = 1000;
-    private _throttler: Throttler;
-
-    // Snapshot state for cursor-based pagination
-    private _snapshotTTL: number;
-    private _snapshot?: { markets: UnifiedMarket[]; takenAt: number; id: string };
-
-    get rateLimit(): number {
-        return this._rateLimit;
-    }
-
-    set rateLimit(value: number) {
-        this._rateLimit = value;
-        this._throttler = new Throttler({
-            refillRate: 1 / value,
-            capacity: 1,
-            delay: 1,
-        });
-    }
-
     // Market Cache
     public markets: Record<string, UnifiedMarket> = {};
     public marketsBySlug: Record<string, UnifiedMarket> = {};
     public loadedMarkets: boolean = false;
-
-    // Implicit API (merged across multiple defineImplicitApi calls)
-    protected apiDescriptor?: ApiDescriptor;
-    private apiDescriptors: ApiDescriptor[] = [];
-
     readonly has: ExchangeHas = {
         fetchMarkets: false,
         fetchEvents: false,
@@ -282,6 +256,14 @@ export abstract class PredictionMarketExchange {
         fetchClosedOrders: false,
         fetchAllOrders: false,
     };
+    protected credentials?: ExchangeCredentials;
+    // Implicit API (merged across multiple defineImplicitApi calls)
+    protected apiDescriptor?: ApiDescriptor;
+    private _throttler: Throttler;
+    // Snapshot state for cursor-based pagination
+    private _snapshotTTL: number;
+    private _snapshot?: { markets: UnifiedMarket[]; takenAt: number; id: string };
+    private apiDescriptors: ApiDescriptor[] = [];
 
     constructor(credentials?: ExchangeCredentials, options?: ExchangeOptions) {
         this.credentials = credentials;
@@ -320,7 +302,7 @@ export abstract class PredictionMarketExchange {
             (response: AxiosResponse) => {
                 if (this.verbose) {
                     console.log(`\n[pmxt] ← ${response.status} ${response.statusText} ${response.config.url}`);
-                    // console.log('[pmxt] response:', JSON.stringify(response.data, null, 2)); 
+                    // console.log('[pmxt] response:', JSON.stringify(response.data, null, 2));
                     // Commented out full body log to avoid spam, but headers might be useful
                 }
                 return response;
@@ -339,7 +321,36 @@ export abstract class PredictionMarketExchange {
         );
     }
 
+    private _rateLimit: number = 1000;
+
+    get rateLimit(): number {
+        return this._rateLimit;
+    }
+
+    set rateLimit(value: number) {
+        this._rateLimit = value;
+        this._throttler = new Throttler({
+            refillRate: 1 / value,
+            capacity: 1,
+            delay: 1,
+        });
+    }
+
     abstract get name(): string;
+
+    /**
+     * Introspection getter: returns info about all implicit API methods.
+     */
+    get implicitApi(): ImplicitApiMethodInfo[] {
+        if (!this.apiDescriptor) return [];
+
+        return Object.entries(this.apiDescriptor.endpoints).map(([name, endpoint]) => ({
+            name,
+            method: endpoint.method,
+            path: endpoint.path,
+            isPrivate: !!endpoint.isPrivate,
+        }));
+    }
 
     /**
      * Load and cache all markets from the exchange into `this.markets` and `this.marketsBySlug`.
@@ -555,6 +566,10 @@ export abstract class PredictionMarketExchange {
         return markets[0];
     }
 
+    // ----------------------------------------------------------------------------
+    // Implementation methods (to be overridden by exchanges)
+    // ----------------------------------------------------------------------------
+
     /**
      * Fetch a single event by lookup parameters.
      * Convenience wrapper around fetchEvents() that returns a single result or throws EventNotFound.
@@ -576,27 +591,6 @@ export abstract class PredictionMarketExchange {
             throw new EventNotFound(identifier, this.name);
         }
         return events[0];
-    }
-
-    // ----------------------------------------------------------------------------
-    // Implementation methods (to be overridden by exchanges)
-    // ----------------------------------------------------------------------------
-
-    /**
-     * @internal
-     * Implementation for fetching/searching markets.
-     * Exchanges should handle query, slug, and plain fetch cases based on params.
-     */
-    protected async fetchMarketsImpl(params?: MarketFetchParams): Promise<UnifiedMarket[]> {
-        throw new Error("Method fetchMarketsImpl not implemented.");
-    }
-
-    /**
-     * @internal
-     * Implementation for searching events by keyword.
-     */
-    protected async fetchEventsImpl(params: EventFetchParams): Promise<UnifiedEvent[]> {
-        throw new Error("Method fetchEventsImpl not implemented.");
     }
 
     /**
@@ -683,10 +677,6 @@ export abstract class PredictionMarketExchange {
         throw new Error("Method fetchTrades not implemented.");
     }
 
-    // ----------------------------------------------------------------------------
-    // Trading Methods
-    // ----------------------------------------------------------------------------
-
     /**
      * Place a new order on the exchange.
      *
@@ -736,6 +726,10 @@ export abstract class PredictionMarketExchange {
     async createOrder(params: CreateOrderParams): Promise<Order> {
         throw new Error("Method createOrder not implemented.");
     }
+
+    // ----------------------------------------------------------------------------
+    // Trading Methods
+    // ----------------------------------------------------------------------------
 
     /**
      * Cancel an existing open order.
@@ -905,10 +899,6 @@ export abstract class PredictionMarketExchange {
     ): ExecutionPriceResult {
         return getExecutionPriceDetailed(orderBook, side, amount);
     }
-
-    // ----------------------------------------------------------------------------
-    // Filtering Methods
-    // ----------------------------------------------------------------------------
 
     /**
      * Filter a list of markets by criteria.
@@ -1095,6 +1085,10 @@ export abstract class PredictionMarketExchange {
         });
     }
 
+    // ----------------------------------------------------------------------------
+    // Filtering Methods
+    // ----------------------------------------------------------------------------
+
     /**
      * Filter a list of events by criteria.
      * Can filter by string query, structured criteria object, or custom filter function.
@@ -1203,10 +1197,6 @@ export abstract class PredictionMarketExchange {
         });
     }
 
-    // ----------------------------------------------------------------------------
-    // WebSocket Streaming Methods
-    // ----------------------------------------------------------------------------
-
     /**
      * Watch order book updates in real-time via WebSocket.
      * Returns a promise that resolves with the next order book update. Call repeatedly in a loop to stream updates (CCXT Pro pattern).
@@ -1229,6 +1219,10 @@ export abstract class PredictionMarketExchange {
     async watchOrderBook(id: string, limit?: number): Promise<OrderBook> {
         throw new Error(`watchOrderBook() is not supported by ${this.name}`);
     }
+
+    // ----------------------------------------------------------------------------
+    // WebSocket Streaming Methods
+    // ----------------------------------------------------------------------------
 
     /**
      * Watch trade executions in real-time via WebSocket.
@@ -1265,7 +1259,7 @@ export abstract class PredictionMarketExchange {
      *
      * @param address - Public wallet address to watch
      * @param types - Subset of activity to watch (default: all types)
-     * @returns Promise that resolves with the latest WatchedAddressActivity snapshot
+     * @returns Promise that resolves with the latest SubscribedAddressSnapshot snapshot
      *
      * @example-ts Stream wallet activity
      * while (true) {
@@ -1278,7 +1272,7 @@ export abstract class PredictionMarketExchange {
      *     activity = exchange.watch_address('0xabc...', ['trades', 'positions'])
      *     print(activity.trades, activity.positions)
      */
-    async watchAddress(address: string, types?: WatchedAddressOption[]): Promise<WatchedAddressActivity> {
+    async watchAddress(address: string, types?: SubscriptionOption[]): Promise<SubscribedAddressSnapshot> {
         throw new Error(`watchAddress() is not supported by ${this.name}`);
     }
 
@@ -1312,9 +1306,26 @@ export abstract class PredictionMarketExchange {
         // Exchanges with WebSocket support should override this
     }
 
+    /**
+     * @internal
+     * Implementation for fetching/searching markets.
+     * Exchanges should handle query, slug, and plain fetch cases based on params.
+     */
+    protected async fetchMarketsImpl(params?: MarketFetchParams): Promise<UnifiedMarket[]> {
+        throw new Error("Method fetchMarketsImpl not implemented.");
+    }
+
     // ----------------------------------------------------------------------------
     // Implicit API (OpenAPI-driven method generation)
     // ----------------------------------------------------------------------------
+
+    /**
+     * @internal
+     * Implementation for searching events by keyword.
+     */
+    protected async fetchEventsImpl(params: EventFetchParams): Promise<UnifiedEvent[]> {
+        throw new Error("Method fetchEventsImpl not implemented.");
+    }
 
     /**
      * Call an implicit API method by its operationId (or auto-generated name).
@@ -1350,6 +1361,22 @@ export abstract class PredictionMarketExchange {
             }
             (this as any)[name] = this.createImplicitMethod(name, endpoint, descriptor.baseUrl);
         }
+    }
+
+    /**
+     * Returns auth headers for a private API call.
+     * Exchanges should override this to provide authentication.
+     */
+    protected sign(_method: string, _path: string, _params: Record<string, any>): Record<string, string> {
+        return {};
+    }
+
+    /**
+     * Maps errors from implicit API calls through the exchange's error mapper.
+     * Exchanges should override this to use their specific error mapper.
+     */
+    protected mapImplicitApiError(error: any): any {
+        throw error;
     }
 
     /**
@@ -1410,35 +1437,5 @@ export abstract class PredictionMarketExchange {
                 throw this.mapImplicitApiError(error);
             }
         };
-    }
-
-    /**
-     * Returns auth headers for a private API call.
-     * Exchanges should override this to provide authentication.
-     */
-    protected sign(_method: string, _path: string, _params: Record<string, any>): Record<string, string> {
-        return {};
-    }
-
-    /**
-     * Maps errors from implicit API calls through the exchange's error mapper.
-     * Exchanges should override this to use their specific error mapper.
-     */
-    protected mapImplicitApiError(error: any): any {
-        throw error;
-    }
-
-    /**
-     * Introspection getter: returns info about all implicit API methods.
-     */
-    get implicitApi(): ImplicitApiMethodInfo[] {
-        if (!this.apiDescriptor) return [];
-
-        return Object.entries(this.apiDescriptor.endpoints).map(([name, endpoint]) => ({
-            name,
-            method: endpoint.method,
-            path: endpoint.path,
-            isPrivate: !!endpoint.isPrivate,
-        }));
     }
 }

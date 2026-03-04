@@ -12,25 +12,25 @@ import {
 } from '../../BaseExchange';
 import { AuthenticationError } from '../../errors';
 import {
+    buildPolymarketTradesActivity,
+    POLYMARKET_DEFAULT_SUBSCRIPTION,
+    POLYMARKET_TRADES_SUBSCRIPTION
+} from '../../subscriber/external/goldsky';
+import { WatcherConfig } from '../../subscriber/watcher';
+import {
     Balance,
     CreateOrderParams,
     Order,
     OrderBook,
     Position,
     PriceCandle,
+    SubscribedAddressSnapshot,
+    SubscriptionOption,
     Trade,
     UnifiedEvent,
     UnifiedMarket,
-    UserTrade,
-    WatchedAddressActivity,
-    WatchedAddressOption
+    UserTrade
 } from '../../types';
-import {
-    buildPolymarketTradesActivity,
-    GoldSkyWatcherConfig,
-    POLYMARKET_DEFAULT_SUBSCRIPTION,
-    POLYMARKET_TRADES_SUBSCRIPTION
-} from '../../utils/goldsky';
 import { parseOpenApiSpec } from '../../utils/openapi';
 import { polymarketClobSpec } from './api-clob';
 import { polymarketDataSpec } from './api-data';
@@ -46,7 +46,7 @@ import { mapMarketToUnified } from './utils';
 import { PolymarketWebSocket, PolymarketWebSocketConfig } from './websocket';
 
 // Re-export for external use
-export type { PolymarketWebSocketConfig, GoldSkyWatcherConfig };
+export type { PolymarketWebSocketConfig, WatcherConfig };
 export { POLYMARKET_DEFAULT_SUBSCRIPTION, POLYMARKET_TRADES_SUBSCRIPTION, buildPolymarketTradesActivity };
 
 export interface PolymarketExchangeOptions {
@@ -483,8 +483,8 @@ export class PolymarketExchange extends PredictionMarketExchange {
 
     async watchAddress(
         address: string,
-        types: WatchedAddressOption[] = ['trades', 'positions', 'balances'],
-    ): Promise<WatchedAddressActivity> {
+        types: SubscriptionOption[] = ['trades', 'positions', 'balances'],
+    ): Promise<SubscribedAddressSnapshot> {
         return this.ensureWs().watchAddress(address, types);
     }
 
@@ -618,9 +618,9 @@ export class PolymarketExchange extends PredictionMarketExchange {
 
     private async fetchWatchedAddressActivity(
         address: string,
-        types: WatchedAddressOption[],
-    ): Promise<WatchedAddressActivity> {
-        const result: WatchedAddressActivity = { address, timestamp: Date.now() };
+        types: SubscriptionOption[],
+    ): Promise<SubscribedAddressSnapshot> {
+        const result: SubscribedAddressSnapshot = { address, timestamp: Date.now() };
         const fetches: Promise<void>[] = [];
 
         if (types.includes('trades')) {
