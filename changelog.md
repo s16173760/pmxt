@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.19.1] - 2026-03-04
+
+### Fixed
+
+- **OpenAPI Schema for `BuiltOrder`**: The `buildOrder` and `submitOrder` endpoints referenced the `BuiltOrder` type in the OpenAPI spec but the schema definition was missing from the components section, causing SDK code generation to fail. The `BuiltOrder` schema is now properly defined in the OpenAPI generator.
+
 ## [2.19.0] - 2026-03-04
 
 ### Added
