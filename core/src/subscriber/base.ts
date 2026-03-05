@@ -1,7 +1,7 @@
 // ----------------------------------------------------------------------------
 // Basic Types & interface
 // ----------------------------------------------------------------------------
-import { Balance, Position, Trade } from "../types";
+import { Balance, Position, Trade } from '../types';
 
 export type SubscriptionOption = 'trades' | 'positions' | 'balances';
 
@@ -56,6 +56,17 @@ export type SubscribedActivityBuilder = (
 
 export interface SubscriberConfig {
     /**
+     * HTTP endpoint used for polling queries.
+     */
+    baseUrl?: string;
+
+    /**
+     * Milliseconds between query polls once websocket subscription is not available.
+     * @default 3000
+     */
+    pollMs?: number;
+
+    /**
      * WebSocket endpoint
      */
     wsEndpoint?: string;
@@ -91,7 +102,7 @@ export interface BaseSubscriber {
      * Resolves once the subscription is active, or throws if the watcher
      * cannot be set up (the watcher will fall back to polling-only on error).
      */
-    subscribe(address: string, onEvent: (data: unknown) => void): Promise<void>;
+    subscribe(address: string, types: SubscriptionOption[], onEvent: (data: unknown) => void): Promise<void>;
 
     /** Stop receiving notifications for `address`. */
     unsubscribe(address: string): void;
