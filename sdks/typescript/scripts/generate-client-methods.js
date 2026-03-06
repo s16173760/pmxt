@@ -40,22 +40,22 @@ const SKIP_GENERATE = new Set([
 // pattern:  how to handle response.data
 // converter: converter function name (for array/single/record patterns)
 const METHOD_RETURN_CONFIG = {
-    loadMarkets:           { returnTs: 'Record<string, UnifiedMarket>', pattern: 'record',          converter: 'convertMarket' },
-    fetchMarkets:          { returnTs: 'UnifiedMarket[]',              pattern: 'array',           converter: 'convertMarket' },
-    fetchMarketsPaginated: { returnTs: 'PaginatedMarketsResult',       pattern: 'paginatedMarkets'                             },
-    fetchEvents:           { returnTs: 'UnifiedEvent[]',               pattern: 'array',           converter: 'convertEvent'  },
-    fetchMarket:           { returnTs: 'UnifiedMarket',                pattern: 'single',          converter: 'convertMarket' },
-    fetchEvent:            { returnTs: 'UnifiedEvent',                 pattern: 'single',          converter: 'convertEvent'  },
-    fetchOrderBook:        { returnTs: 'OrderBook',                    pattern: 'single',          converter: 'convertOrderBook' },
-    cancelOrder:           { returnTs: 'Order',                        pattern: 'single',          converter: 'convertOrder'  },
-    fetchOrder:            { returnTs: 'Order',                        pattern: 'single',          converter: 'convertOrder'  },
-    fetchOpenOrders:       { returnTs: 'Order[]',                      pattern: 'array',           converter: 'convertOrder'  },
-    fetchMyTrades:         { returnTs: 'UserTrade[]',                  pattern: 'array',           converter: 'convertUserTrade' },
-    fetchClosedOrders:     { returnTs: 'Order[]',                      pattern: 'array',           converter: 'convertOrder'  },
-    fetchAllOrders:        { returnTs: 'Order[]',                      pattern: 'array',           converter: 'convertOrder'  },
-    fetchPositions:        { returnTs: 'Position[]',                   pattern: 'array',           converter: 'convertPosition' },
-    fetchBalance:          { returnTs: 'Balance[]',                    pattern: 'array',           converter: 'convertBalance' },
-    close:                 { returnTs: 'void',                         pattern: 'void'                                        },
+    loadMarkets: { returnTs: 'Record<string, UnifiedMarket>', pattern: 'record', converter: 'convertMarket' },
+    fetchMarkets: { returnTs: 'UnifiedMarket[]', pattern: 'array', converter: 'convertMarket' },
+    fetchMarketsPaginated: { returnTs: 'PaginatedMarketsResult', pattern: 'paginatedMarkets' },
+    fetchEvents: { returnTs: 'UnifiedEvent[]', pattern: 'array', converter: 'convertEvent' },
+    fetchMarket: { returnTs: 'UnifiedMarket', pattern: 'single', converter: 'convertMarket' },
+    fetchEvent: { returnTs: 'UnifiedEvent', pattern: 'single', converter: 'convertEvent' },
+    fetchOrderBook: { returnTs: 'OrderBook', pattern: 'single', converter: 'convertOrderBook' },
+    cancelOrder: { returnTs: 'Order', pattern: 'single', converter: 'convertOrder' },
+    fetchOrder: { returnTs: 'Order', pattern: 'single', converter: 'convertOrder' },
+    fetchOpenOrders: { returnTs: 'Order[]', pattern: 'array', converter: 'convertOrder' },
+    fetchMyTrades: { returnTs: 'UserTrade[]', pattern: 'array', converter: 'convertUserTrade' },
+    fetchClosedOrders: { returnTs: 'Order[]', pattern: 'array', converter: 'convertOrder' },
+    fetchAllOrders: { returnTs: 'Order[]', pattern: 'array', converter: 'convertOrder' },
+    fetchPositions: { returnTs: 'Position[]', pattern: 'array', converter: 'convertPosition' },
+    fetchBalance: { returnTs: 'Balance[]', pattern: 'array', converter: 'convertBalance' },
+    close: { returnTs: 'void', pattern: 'void' },
 };
 
 // SDK types that can be used in generated signatures without import issues
@@ -71,11 +71,11 @@ const SDK_PARAM_TYPES = new Set([
 function typeNodeToTS(node, sf) {
     if (!node) return 'any';
     switch (node.kind) {
-        case ts.SyntaxKind.StringKeyword:    return 'string';
-        case ts.SyntaxKind.NumberKeyword:    return 'number';
-        case ts.SyntaxKind.BooleanKeyword:   return 'boolean';
-        case ts.SyntaxKind.VoidKeyword:      return 'void';
-        case ts.SyntaxKind.AnyKeyword:       return 'any';
+        case ts.SyntaxKind.StringKeyword: return 'string';
+        case ts.SyntaxKind.NumberKeyword: return 'number';
+        case ts.SyntaxKind.BooleanKeyword: return 'boolean';
+        case ts.SyntaxKind.VoidKeyword: return 'void';
+        case ts.SyntaxKind.AnyKeyword: return 'any';
         case ts.SyntaxKind.UndefinedKeyword: return 'undefined';
         case ts.SyntaxKind.TypeReference: {
             const name = node.typeName.kind === ts.SyntaxKind.Identifier
@@ -230,7 +230,7 @@ function generateMethod(name, params, config, sf) {
         `            ${argsCode}`,
         `            const response = await fetch(\`\${this.config.basePath}/api/\${this.exchangeName}/${name}\`, {`,
         `                method: 'POST',`,
-        `                headers: { 'Content-Type': 'application/json', ...this.config.headers },`,
+        `                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },`,
         `                body: JSON.stringify({ args, credentials: this.getCredentials() }),`,
         `            });`,
         `            if (!response.ok) {`,

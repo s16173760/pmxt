@@ -271,19 +271,6 @@ class Exchange(ABC):
         config = Configuration(host=base_url)
         self._api_client = ApiClient(configuration=config)
 
-        # Add access token from lock file (with retry for timing issues)
-        server_info = None
-        for attempt in range(5):
-            server_info = self._server_manager.get_server_info()
-            if server_info and 'accessToken' in server_info:
-                break
-            if attempt < 4:
-                import time
-                time.sleep(0.1)
-
-        if server_info and 'accessToken' in server_info:
-            self._api_client.default_headers['x-pmxt-access-token'] = server_info['accessToken']
-
         self._api = DefaultApi(api_client=self._api_client)
 
     def _handle_response(self, response: Dict[str, Any]) -> Any:
@@ -309,6 +296,19 @@ class Exchange(ABC):
             except:
                 pass
         return str(e)
+
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Build request headers with a fresh access token read from the lock file.
+
+        The token is re-read on every call so that if the sidecar server restarts
+        (and writes a new token) existing client objects automatically recover on
+        the next request — no re-instantiation required.
+        """
+        headers: Dict[str, str] = dict(self._api_client.default_headers)
+        server_info = self._server_manager.get_server_info()
+        if server_info and 'accessToken' in server_info:
+            headers['x-pmxt-access-token'] = server_info['accessToken']
+        return headers
 
     def _get_credentials_dict(self) -> Optional[Dict[str, Any]]:
         """Build credentials dictionary for API requests."""
@@ -344,7 +344,7 @@ class Exchange(ABC):
             try:
                 url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/has"
                 headers = {"Accept": "application/json"}
-                headers.update(self._api_client.default_headers)
+                headers.update(self._get_auth_headers())
                 response = self._api_client.call_api(
                     method="GET",
                     url=url,
@@ -368,7 +368,7 @@ class Exchange(ABC):
             if creds:
                 body["credentials"] = creds
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(
                 method="POST",
                 url=url,
@@ -406,7 +406,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
 
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
 
             response = self._api_client.call_api(
                 method="POST",
@@ -471,7 +471,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchMarkets"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -490,7 +490,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchMarketsPaginated"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -513,7 +513,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchEvents"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -532,7 +532,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchMarket"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -551,7 +551,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchEvent"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -569,7 +569,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchOrderBook"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -587,7 +587,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/cancelOrder"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -605,7 +605,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchOrder"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -624,7 +624,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchOpenOrders"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -643,7 +643,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchMyTrades"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -662,7 +662,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchClosedOrders"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -681,7 +681,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchAllOrders"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -698,7 +698,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchPositions"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -715,7 +715,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/fetchBalance"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             data = self._handle_response(json.loads(response.data))
@@ -732,7 +732,7 @@ class Exchange(ABC):
                 body["credentials"] = creds
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/close"
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
             response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)
             response.read()
             self._handle_response(json.loads(response.data))
@@ -1416,7 +1416,7 @@ class Exchange(ABC):
             url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/getExecutionPriceDetailed"
 
             headers = {"Content-Type": "application/json", "Accept": "application/json"}
-            headers.update(self._api_client.default_headers)
+            headers.update(self._get_auth_headers())
 
             response = self._api_client.call_api(
                 method="POST",

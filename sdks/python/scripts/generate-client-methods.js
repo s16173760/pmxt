@@ -43,21 +43,21 @@ const SKIP_GENERATE = new Set([
 // pattern:  how to handle response data
 // converter: converter function name (for array/single patterns)
 const METHOD_RETURN_CONFIG = {
-    fetchMarkets:          { returnPy: 'List[UnifiedMarket]',    pattern: 'array',     converter: '_convert_market'      },
-    fetchMarketsPaginated: { returnPy: 'PaginatedMarketsResult', pattern: 'paginated'                                    },
-    fetchEvents:           { returnPy: 'List[UnifiedEvent]',     pattern: 'array',     converter: '_convert_event'       },
-    fetchMarket:           { returnPy: 'UnifiedMarket',          pattern: 'single',    converter: '_convert_market'      },
-    fetchEvent:            { returnPy: 'UnifiedEvent',           pattern: 'single',    converter: '_convert_event'       },
-    fetchOrderBook:        { returnPy: 'OrderBook',              pattern: 'single',    converter: '_convert_order_book'  },
-    cancelOrder:           { returnPy: 'Order',                  pattern: 'single',    converter: '_convert_order'       },
-    fetchOrder:            { returnPy: 'Order',                  pattern: 'single',    converter: '_convert_order'       },
-    fetchOpenOrders:       { returnPy: 'List[Order]',            pattern: 'array',     converter: '_convert_order'       },
-    fetchMyTrades:         { returnPy: 'List[UserTrade]',        pattern: 'array',     converter: '_convert_user_trade'  },
-    fetchClosedOrders:     { returnPy: 'List[Order]',            pattern: 'array',     converter: '_convert_order'       },
-    fetchAllOrders:        { returnPy: 'List[Order]',            pattern: 'array',     converter: '_convert_order'       },
-    fetchPositions:        { returnPy: 'List[Position]',         pattern: 'array',     converter: '_convert_position'    },
-    fetchBalance:          { returnPy: 'List[Balance]',          pattern: 'array',     converter: '_convert_balance'     },
-    close:                 { returnPy: 'None',                   pattern: 'void'                                         },
+    fetchMarkets: { returnPy: 'List[UnifiedMarket]', pattern: 'array', converter: '_convert_market' },
+    fetchMarketsPaginated: { returnPy: 'PaginatedMarketsResult', pattern: 'paginated' },
+    fetchEvents: { returnPy: 'List[UnifiedEvent]', pattern: 'array', converter: '_convert_event' },
+    fetchMarket: { returnPy: 'UnifiedMarket', pattern: 'single', converter: '_convert_market' },
+    fetchEvent: { returnPy: 'UnifiedEvent', pattern: 'single', converter: '_convert_event' },
+    fetchOrderBook: { returnPy: 'OrderBook', pattern: 'single', converter: '_convert_order_book' },
+    cancelOrder: { returnPy: 'Order', pattern: 'single', converter: '_convert_order' },
+    fetchOrder: { returnPy: 'Order', pattern: 'single', converter: '_convert_order' },
+    fetchOpenOrders: { returnPy: 'List[Order]', pattern: 'array', converter: '_convert_order' },
+    fetchMyTrades: { returnPy: 'List[UserTrade]', pattern: 'array', converter: '_convert_user_trade' },
+    fetchClosedOrders: { returnPy: 'List[Order]', pattern: 'array', converter: '_convert_order' },
+    fetchAllOrders: { returnPy: 'List[Order]', pattern: 'array', converter: '_convert_order' },
+    fetchPositions: { returnPy: 'List[Position]', pattern: 'array', converter: '_convert_position' },
+    fetchBalance: { returnPy: 'List[Balance]', pattern: 'array', converter: '_convert_balance' },
+    close: { returnPy: 'None', pattern: 'void' },
 };
 
 // ---------------------------------------------------------------------------
@@ -71,13 +71,13 @@ function camelToSnake(s) {
 function typeNodeToPy(node, sf) {
     if (!node) return 'Any';
     switch (node.kind) {
-        case ts.SyntaxKind.StringKeyword:    return 'str';
-        case ts.SyntaxKind.NumberKeyword:    return 'float';
-        case ts.SyntaxKind.BooleanKeyword:   return 'bool';
-        case ts.SyntaxKind.VoidKeyword:      return 'None';
-        case ts.SyntaxKind.AnyKeyword:       return 'Any';
+        case ts.SyntaxKind.StringKeyword: return 'str';
+        case ts.SyntaxKind.NumberKeyword: return 'float';
+        case ts.SyntaxKind.BooleanKeyword: return 'bool';
+        case ts.SyntaxKind.VoidKeyword: return 'None';
+        case ts.SyntaxKind.AnyKeyword: return 'Any';
         case ts.SyntaxKind.UndefinedKeyword: return 'Any';
-        case ts.SyntaxKind.TypeLiteral:      return 'dict';
+        case ts.SyntaxKind.TypeLiteral: return 'dict';
         case ts.SyntaxKind.TypeReference: {
             const name = node.typeName.kind === ts.SyntaxKind.Identifier
                 ? node.typeName.text
@@ -85,8 +85,8 @@ function typeNodeToPy(node, sf) {
             if (name === 'Promise' && node.typeArguments) {
                 return typeNodeToPy(node.typeArguments[0], sf);
             }
-            if (name === 'string')  return 'str';
-            if (name === 'number')  return 'float';
+            if (name === 'string') return 'str';
+            if (name === 'number') return 'float';
             if (name === 'boolean') return 'bool';
             return 'dict';
         }
@@ -225,7 +225,7 @@ function generatePyMethod(name, params, config, sf) {
         `                body["credentials"] = creds`,
         `            url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/${name}"`,
         `            headers = {"Content-Type": "application/json", "Accept": "application/json"}`,
-        `            headers.update(self._api_client.default_headers)`,
+        `            headers.update(self._get_auth_headers())`,
         `            response = self._api_client.call_api(method="POST", url=url, body=body, header_params=headers)`,
         `            response.read()`,
         returnLines,

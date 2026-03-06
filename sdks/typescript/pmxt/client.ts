@@ -261,16 +261,9 @@ export abstract class Exchange {
                 const actualPort = this.serverManager.getRunningPort();
                 const newBaseUrl = `http://localhost:${actualPort}`;
 
-                const accessToken = this.serverManager.getAccessToken();
-                const headers: any = {};
-                if (accessToken) {
-                    headers['x-pmxt-access-token'] = accessToken;
-                }
-
                 // Update API client with actual base URL
                 this.config = new Configuration({
                     basePath: newBaseUrl,
-                    headers
                 });
                 this.api = new DefaultApi(this.config);
             } catch (error) {
@@ -301,6 +294,15 @@ export abstract class Exchange {
             funderAddress: this.proxyAddress,
             signatureType: this.signatureType,
         };
+    }
+
+    protected getAuthHeaders(): Record<string, string> {
+        const headers: Record<string, string> = { ...(this.config.headers as Record<string, string>) };
+        const accessToken = this.serverManager.getAccessToken();
+        if (accessToken) {
+            headers['x-pmxt-access-token'] = accessToken;
+        }
+        return headers;
     }
 
     // Low-Level API Access
@@ -334,7 +336,7 @@ export abstract class Exchange {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    ...this.config.headers
+                    ...this.getAuthHeaders()
                 },
                 body: JSON.stringify(requestBody)
             });
@@ -360,7 +362,7 @@ export abstract class Exchange {
             args.push(reload);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/loadMarkets`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -386,7 +388,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchMarkets`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -408,7 +410,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchMarketsPaginated`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -434,7 +436,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchEvents`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -456,7 +458,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchMarket`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -478,7 +480,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchEvent`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -500,7 +502,7 @@ export abstract class Exchange {
             args.push(id);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchOrderBook`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -522,7 +524,7 @@ export abstract class Exchange {
             args.push(orderId);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/cancelOrder`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -544,7 +546,7 @@ export abstract class Exchange {
             args.push(orderId);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchOrder`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -566,7 +568,7 @@ export abstract class Exchange {
             if (marketId !== undefined) args.push(marketId);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchOpenOrders`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -588,7 +590,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchMyTrades`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -610,7 +612,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchClosedOrders`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -632,7 +634,7 @@ export abstract class Exchange {
             if (params !== undefined) args.push(params);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchAllOrders`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -653,7 +655,7 @@ export abstract class Exchange {
             const args: any[] = [];
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchPositions`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -674,7 +676,7 @@ export abstract class Exchange {
             const args: any[] = [];
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchBalance`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -695,7 +697,7 @@ export abstract class Exchange {
             const args: any[] = [];
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/close`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...this.config.headers },
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
                 body: JSON.stringify({ args, credentials: this.getCredentials() }),
             });
             if (!response.ok) {
@@ -753,7 +755,7 @@ export abstract class Exchange {
             const response = await this.api.fetchOHLCV({
                 exchange: this.exchangeName as any,
                 fetchOHLCVRequest: requestBody,
-            });
+            }, { headers: this.getAuthHeaders() });
 
             const data = this.handleResponse(response);
             return data.map(convertCandle);
@@ -790,7 +792,7 @@ export abstract class Exchange {
             const response = await this.api.fetchTrades({
                 exchange: this.exchangeName as any,
                 fetchTradesRequest: requestBody,
-            });
+            }, { headers: this.getAuthHeaders() });
 
             const data = this.handleResponse(response);
             return data.map(convertTrade);

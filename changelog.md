@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.19.5] - 2026-03-06
+
+### Fixed
+
+- **SDK: Resilient Authentication (Python & TypeScript)**: Eliminated "Unauthorized: Invalid or missing access token" errors caused by sidecar server restarts. Both the Python and TypeScript SDKs now read the access token fresh from the `~/.pmxt/server.lock` file on every request via a new `getAuthHeaders` helper. This ensures that if the server rebooted and rotated tokens, existing `Exchange` instances (like `Polymarket`) automatically pick up the new valid token on their next call, removing the need for developers to manually re-instantiate clients.
+- **SDK: Generator Persistence (Python & TypeScript)**: Updated both `sdks/python/scripts/generate-client-methods.js` and `sdks/typescript/scripts/generate-client-methods.js` to emit the live header retrieval pattern, ensuring authentication resilience is maintained in all future auto-generated methods.
+
 ## [2.19.4] - 2026-03-06
 
 ### Added
