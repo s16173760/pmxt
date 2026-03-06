@@ -10,7 +10,7 @@ import { SubscribedAddressSnapshot, SubscriptionOption } from '../../subscriber/
 import {
     buildPolymarketActivity,
     GoldSkySubscriber,
-    POLYMARKET_DEFAULT_SUBSCRIPTION
+    POLYMARKET_DEFAULT_SUBSCRIPTION,
 } from '../../subscriber/external/goldsky';
 import { AddressWatcher, WatcherConfig } from '../../subscriber/watcher';
 import { OrderBook, OrderLevel, QueuedPromise, Trade } from '../../types';
@@ -43,14 +43,14 @@ export class PolymarketWebSocket {
         const watcherConfig = this.config.watcherConfig;
         const subscriber = new GoldSkySubscriber({
             ...watcherConfig,
-            buildSubscription: POLYMARKET_DEFAULT_SUBSCRIPTION
+            buildSubscription: POLYMARKET_DEFAULT_SUBSCRIPTION,
         });
         this.watcher = new AddressWatcher(
             (address, types) => callApi('fetchWatchedAddressActivity', { address, types }),
             {
                 subscriber,
-                buildActivity: buildPolymarketActivity
-            }
+                buildActivity: buildPolymarketActivity,
+            },
         );
     }
 
@@ -136,19 +136,19 @@ export class PolymarketWebSocket {
                         },
                         onError: async (error: Error) => {
                             console.error('Polymarket WebSocket error:', error.message);
-                        }
+                        },
                     },
                     {
                         reconnectAndCleanupIntervalMs: this.config.reconnectIntervalMs ?? 5000,
-                        pendingFlushIntervalMs: this.config.flushIntervalMs ?? 100
-                    }
+                        pendingFlushIntervalMs: this.config.flushIntervalMs ?? 100,
+                    },
                 );
             } catch (e) {
                 const error = e as Error;
                 if (error.message.includes('Cannot find module')) {
                     throw new Error(
                         'Polymarket WebSocket support requires the "@nevuamarkets/poly-websockets" package.\n' +
-                        'To use this feature, please install it: npm install @nevuamarkets/poly-websockets'
+                        'To use this feature, please install it: npm install @nevuamarkets/poly-websockets',
                     );
                 }
                 throw e;
@@ -163,18 +163,18 @@ export class PolymarketWebSocket {
 
         const bids: OrderLevel[] = event.bids.map((b: any) => ({
             price: parseFloat(b.price),
-            size: parseFloat(b.size)
+            size: parseFloat(b.size),
         })).sort((a: any, b: any) => b.price - a.price);
 
         const asks: OrderLevel[] = event.asks.map((a: any) => ({
             price: parseFloat(a.price),
-            size: parseFloat(a.size)
+            size: parseFloat(a.size),
         })).sort((a: any, b: any) => a.price - b.price);
 
         const orderBook: OrderBook = {
             bids,
             asks,
-            timestamp: event.timestamp ? (isNaN(Number(event.timestamp)) ? new Date(event.timestamp).getTime() : Number(event.timestamp)) : Date.now()
+            timestamp: event.timestamp ? (isNaN(Number(event.timestamp)) ? new Date(event.timestamp).getTime() : Number(event.timestamp)) : Date.now(),
         };
 
         this.orderBooks.set(id, orderBook);
@@ -232,7 +232,7 @@ export class PolymarketWebSocket {
             timestamp: event.timestamp ? (isNaN(Number(event.timestamp)) ? new Date(event.timestamp).getTime() : Number(event.timestamp)) : Date.now(),
             price: parseFloat(event.price),
             amount: parseFloat(event.size),
-            side: event.side.toLowerCase() as 'buy' | 'sell' | 'unknown'
+            side: event.side.toLowerCase() as 'buy' | 'sell' | 'unknown',
         };
 
         const resolvers = this.tradeResolvers.get(id);
