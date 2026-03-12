@@ -24,6 +24,7 @@ import {
     Trade,
     UserTrade,
     Order,
+    BuiltOrder,
     Position,
     Balance,
     SearchIn,
@@ -925,6 +926,37 @@ export abstract class Exchange {
     }
 
     // Trading Methods (require authentication)
+
+    async buildOrder(params: any): Promise<BuiltOrder> {
+        await this.initPromise;
+        try {
+            let marketId = params.marketId;
+            let outcomeId = params.outcomeId;
+            if (params.outcome) {
+                if (marketId !== undefined || outcomeId !== undefined) {
+                    throw new Error('Provide either outcome or marketId/outcomeId, not both');
+                }
+                marketId = params.outcome.marketId;
+                outcomeId = params.outcome.outcomeId;
+            }
+            const paramsDict: any = { marketId, outcomeId, side: params.side, type: params.type, amount: params.amount };
+            if (params.price !== undefined) paramsDict.price = params.price;
+            if (params.fee !== undefined) paramsDict.fee = params.fee;
+            const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/buildOrder`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
+                body: JSON.stringify({ args: [paramsDict], credentials: this.getCredentials() }),
+            });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.error?.message || response.statusText);
+            }
+            const json = await response.json();
+            return this.handleResponse(json) as BuiltOrder;
+        } catch (error) {
+            throw new Error(`Failed to buildOrder: ${error}`);
+        }
+    }
 
     /**
      * Create a new order.

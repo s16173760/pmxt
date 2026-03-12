@@ -19,6 +19,8 @@ const PUBLIC_METHODS = [
     'fetchOrderBook',
     'fetchTrades',
     'createOrder',
+    'buildOrder',
+    'submitOrder',
     'cancelOrder',
     'fetchOrder',
     'fetchOpenOrders',

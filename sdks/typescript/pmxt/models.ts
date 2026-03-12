@@ -368,6 +368,28 @@ export interface CreateOrderParams {
     /** Optional fee rate (e.g., 1000 for 0.1%) */
     fee?: number;
 }
+
+/**
+ * An order payload built but not yet submitted to the exchange.
+ */
+export interface BuiltOrder {
+    /** The exchange name this order was built for. */
+    exchange: string;
+    /** The original params used to build this order. */
+    params: CreateOrderParams;
+    /** For CLOB exchanges (Polymarket): the EIP-712 signed order. */
+    signedOrder?: Record<string, unknown>;
+    /** For on-chain AMM exchanges: the EVM transaction payload. */
+    tx?: {
+        to: string;
+        data: string;
+        value: string;
+        chainId: number;
+    };
+    /** The raw, exchange-native payload. Always present. */
+    raw: unknown;
+}
+
 /**
  * A list of UnifiedMarket objects with a convenience match() method.
  * Extends Array so all standard array operations work unchanged.
