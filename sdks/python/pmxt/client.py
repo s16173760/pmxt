@@ -213,11 +213,14 @@ def _convert_execution_result(raw: Dict[str, Any]) -> ExecutionPriceResult:
 
 def _convert_subscription_snapshot(raw: Dict[str, Any]) -> SubscribedAddressSnapshot:
     """Convert raw API response to SubscribedAddressSnapshot."""
+    raw_trades = raw.get("trades")
+    raw_positions = raw.get("positions")
+    raw_balances = raw.get("balances")
     return SubscribedAddressSnapshot(
         address=raw.get("address"),
-        trades=raw.get("trades"),
-        positions=raw.get("positions"),
-        balances=raw.get("balances"),
+        trades=[_convert_trade(t) for t in raw_trades] if raw_trades else None,
+        positions=[_convert_position(p) for p in raw_positions] if raw_positions else None,
+        balances=[_convert_balance(b) for b in raw_balances] if raw_balances else None,
         timestamp=raw.get("timestamp"),
     )
 
@@ -1229,25 +1232,27 @@ class Exchange(ABC):
             ...         print(f"Trade: {snapshot.trades}")
         """
         try:
-            args = [address]
+            args: list = [address]
             if types is not None:
                 args.append(types)
 
-            body_dict = {"args": args}
-
-            # Add credentials if available
+            body: dict = {"args": args}
             creds = self._get_credentials_dict()
             if creds:
-                body_dict["credentials"] = creds
+                body["credentials"] = creds
 
-            request_body = internal_models.WatchAddressRequest.from_dict(body_dict)
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            headers.update(self._get_auth_headers())
 
-            response = self._api.watch_address(
-                exchange=self.exchange_name,
-                watch_address_request=request_body,
+            url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/watchAddress"
+            response = self._api_client.call_api(
+                method="POST",
+                url=url,
+                body=body,
+                header_params=headers,
             )
-
-            data = self._handle_response(response.to_dict())
+            response.read()
+            data = self._handle_response(json.loads(response.data))
             return _convert_subscription_snapshot(data)
         except ApiException as e:
             raise Exception(f"Failed to watch address: {self._extract_api_error(e)}") from None
@@ -1266,24 +1271,23 @@ class Exchange(ABC):
             None
         """
         try:
-            args = [address]
-
-            body_dict = {"args": args}
-
-            # Add credentials if available
+            body: dict = {"args": [address]}
             creds = self._get_credentials_dict()
             if creds:
-                body_dict["credentials"] = creds
+                body["credentials"] = creds
 
-            request_body = internal_models.UnwatchAddressRequest.from_dict(body_dict)
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            headers.update(self._get_auth_headers())
 
-            response = self._api.unwatch_address(
-                exchange=self.exchange_name,
-                unwatch_address_request=request_body,
+            url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/unwatchAddress"
+            response = self._api_client.call_api(
+                method="POST",
+                url=url,
+                body=body,
+                header_params=headers,
             )
-
-            data = self._handle_response(response.to_dict())
-            return data
+            response.read()
+            return self._handle_response(json.loads(response.data))
         except ApiException as e:
             raise Exception(f"Failed to unwatch address: {self._extract_api_error(e)}") from None
 

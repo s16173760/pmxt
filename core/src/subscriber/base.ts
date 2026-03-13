@@ -71,8 +71,8 @@ export interface SubscriberConfig {
      */
     wsEndpoint?: string;
 
-    /** API key to get access to the external websocket subscription.
-     * If private endpoints are needed to restrict access to your
+    /** API key for authenticating with the external subscription provider.
+     * Required when the provider restricts access to authenticated clients.
      */
     apiKey?: string;
 

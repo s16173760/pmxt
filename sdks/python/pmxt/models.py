@@ -396,10 +396,10 @@ class SubscribedAddressSnapshot:
     trades: Optional[list[Trade]] = None
 
     """Open positions of this address"""
-    positions: Optional[list[Trade]] = None
+    positions: Optional[list[Position]] = None
 
     """Balances of this address"""
-    balances: Optional[list[Trade]] = None
+    balances: Optional[list[Balance]] = None
 
 # ----------------------------------------------------------------------------
 # Filtering Types

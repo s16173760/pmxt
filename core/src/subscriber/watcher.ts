@@ -156,7 +156,7 @@ export class AddressWatcher {
      * Handle raw event data from the subscriber.
      *
      * @param address - Public wallet address to watch
-     * @param data - Subset of activity to watch
+     * @param data - Raw event payload from the subscriber
      *
      * Calls `buildActivity` to attempt constructing a partial result from the
      * event payload. Fetches only the types that are missing from the partial,
