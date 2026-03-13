@@ -4,10 +4,9 @@ Data models for PMXT.
 These are clean Pythonic wrappers around the auto-generated OpenAPI models.
 """
 
-from typing import List, Optional, Dict, Any, Literal
-from datetime import datetime
 from dataclasses import dataclass
-
+from datetime import datetime
+from typing import List, Optional, Dict, Any, Literal
 
 # Parameter types
 CandleInterval = Literal["1m", "5m", "15m", "1h", "6h", "1d"]
@@ -403,11 +402,31 @@ class Balance:
     """Locked in open orders"""
 
 
+@dataclass
+class SubscribedAddressSnapshot:
+    """Subscription snapshot."""
+
+    """The wallet address being watched"""
+    address: str
+
+    """Unix timestamp (ms) of this snapshot"""
+    timestamp: int
+
+    """Recent trades for this address"""
+    trades: Optional[list[Trade]] = None
+
+    """Open positions of this address"""
+    positions: Optional[list[Position]] = None
+
+    """Balances of this address"""
+    balances: Optional[list[Balance]] = None
+
 # ----------------------------------------------------------------------------
 # Filtering Types
 # ----------------------------------------------------------------------------
 
-from typing import TypedDict, Callable, Union
+from typing import TypedDict, Callable
+
 
 class MinMax(TypedDict, total=False):
     """Range filter."""

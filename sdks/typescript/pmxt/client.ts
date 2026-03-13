@@ -6,38 +6,39 @@
  */
 
 import {
-    DefaultApi,
     Configuration,
+    CreateOrderRequest,
+    DefaultApi,
+    ExchangeCredentials,
     FetchOHLCVRequest,
     FetchTradesRequest,
-    CreateOrderRequest,
     BuildOrderRequest,
     SubmitOrderRequest,
-    ExchangeCredentials,
 } from "../generated/src/index.js";
 
 import {
-    UnifiedMarket,
-    MarketOutcome,
-    MarketList,
-    PriceCandle,
-    OrderBook,
-    OrderLevel,
-    Trade,
-    UserTrade,
-    Order,
+    Balance,
     BuiltOrder,
     CreateOrderParams,
-    Position,
-    Balance,
-    SearchIn,
-    UnifiedEvent,
-    ExecutionPriceResult,
-    PaginatedMarketsResult,
-    MarketFilterCriteria,
-    MarketFilterFunction,
     EventFilterCriteria,
     EventFilterFunction,
+    ExecutionPriceResult,
+    MarketFilterCriteria,
+    MarketFilterFunction,
+    MarketList,
+    MarketOutcome,
+    Order,
+    OrderBook,
+    OrderLevel,
+    PaginatedMarketsResult,
+    Position,
+    PriceCandle,
+    SubscribedAddressSnapshot,
+    SubscriptionOption,
+    Trade,
+    UnifiedEvent,
+    UnifiedMarket,
+    UserTrade,
 } from "./models.js";
 
 import { ServerManager } from "./server-manager.js";
@@ -192,6 +193,22 @@ function convertEvent(raw: any): UnifiedEvent {
     };
 
     return event;
+}
+
+
+function convertSubscriptionSnapshot(raw: any): SubscribedAddressSnapshot {
+    const trades = (raw.trades?? []).map(convertTrade);
+    const balances = (raw.balances?? []).map(convertBalance);
+    const positions = (raw.positions?? []).map(convertPosition);
+
+    const snapShot: SubscribedAddressSnapshot = {
+      address: raw.address,
+      trades,
+      balances,
+      positions,
+      timestamp: raw.timestamp,
+    };
+    return snapShot;
 }
 
 /**
@@ -654,10 +671,10 @@ export abstract class Exchange {
         }
     }
 
-    async fetchPositions(): Promise<Position[]> {
+    async fetchPositions(address?: string): Promise<Position[]> {
         await this.initPromise;
         try {
-            const args: any[] = [];
+            const args: any[] = address? [address] : [];
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchPositions`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
@@ -675,10 +692,10 @@ export abstract class Exchange {
         }
     }
 
-    async fetchBalance(): Promise<Balance[]> {
+    async fetchBalance(address?: string): Promise<Balance[]> {
         await this.initPromise;
         try {
-            const args: any[] = [];
+            const args: any[] = address? [address] : [];
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchBalance`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
@@ -860,6 +877,7 @@ export abstract class Exchange {
      * Call repeatedly in a loop to stream updates (CCXT Pro pattern).
      * 
      * @param outcomeId - Outcome ID to watch
+     * @param address - Public wallet to be watched
      * @param since - Optional timestamp to filter trades from
      * @param limit - Optional limit for number of trades
      * @returns Next trade update(s)
@@ -877,12 +895,16 @@ export abstract class Exchange {
      */
     async watchTrades(
         outcomeId: string,
+        address?: string,
         since?: number,
         limit?: number
     ): Promise<Trade[]> {
         await this.initPromise;
         try {
             const args: any[] = [outcomeId];
+            if (address !== undefined) {
+                args.push(address);
+            }
             if (since !== undefined) {
                 args.push(since);
             }
@@ -904,6 +926,83 @@ export abstract class Exchange {
             return data.map(convertTrade);
         } catch (error) {
             throw new Error(`Failed to watch trades: ${error}`);
+        }
+    }
+
+    /**
+     * Watch real-time updates of a public wallet via WebSocket.
+     *
+     * Returns a promise that resolves with the next update(s).
+     * Call repeatedly in a loop to stream updates (CCXT Pro pattern).
+     *
+     * @param address - Public wallet to be watched
+     * @param types - Subscription options including 'trades', 'positions', and 'balances'
+     * @returns Next update(s)
+     *
+     * @example
+     * ```typescript
+     * // Stream updates of a public wallet address
+     * while (true) {
+     *   const snapshots = await exchange.watchAddress(address, types);
+     *   for (const snapshot of snapshots) {
+     *     console.log(`Trade: ${snapshot.trades}`);
+     *   }
+     * }
+     * ```
+     */
+    async watchAddress(
+        address: string,
+        types?: SubscriptionOption[],
+    ): Promise<SubscribedAddressSnapshot> {
+        await this.initPromise;
+        try {
+            const args: any[] = [address];
+            if (types !== undefined) {
+                args.push(types);
+            }
+            const requestBody: any = {
+                args,
+                credentials: this.getCredentials()
+            };
+
+            const response = await this.api.watchAddress({
+                exchange: this.exchangeName as any,
+                watchAddressRequest: requestBody,
+            });
+
+            const data = this.handleResponse(response);
+            return convertSubscriptionSnapshot(data);
+        } catch (error) {
+            throw new Error(`Failed to watch address: ${error}`);
+        }
+    }
+
+    /**
+     * Stop watching a previously registered wallet address and release its resource updates.
+     *
+     * @param address - Public wallet to be watched
+     * @returns
+     */
+    async unwatchAddress(
+        address: string,
+    ): Promise<Trade[]> {
+        await this.initPromise;
+        try {
+            const args: any[] = [address];
+
+            const requestBody: any = {
+                args,
+                credentials: this.getCredentials()
+            };
+
+            const response = await this.api.unwatchAddress({
+                exchange: this.exchangeName as any,
+                unwatchAddressRequest: requestBody,
+            });
+
+            return this.handleResponse(response);
+        } catch (error) {
+            throw new Error(`Failed to unwatch address: ${error}`);
         }
     }
 

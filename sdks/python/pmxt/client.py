@@ -5,12 +5,12 @@ This module provides clean, Pythonic wrappers around the auto-generated
 OpenAPI client, matching the JavaScript API exactly.
 """
 
+import json
 import os
 import sys
-from typing import List, Optional, Dict, Any, Literal, Union
+from abc import ABC
 from datetime import datetime
-from abc import ABC, abstractmethod
-import json
+from typing import List, Optional, Dict, Any, Literal, Union
 
 # Add generated client to path
 _GENERATED_PATH = os.path.join(os.path.dirname(__file__), "..", "generated")
@@ -42,6 +42,7 @@ from .models import (
     MarketFilterFunction,
     EventFilterCriteria,
     EventFilterFunction,
+    SubscribedAddressSnapshot,
 )
 from .server_manager import ServerManager
 
@@ -219,6 +220,20 @@ def _convert_execution_result(raw: Dict[str, Any]) -> ExecutionPriceResult:
         price=raw.get("price", 0),
         filled_amount=raw.get("filledAmount", 0),
         fully_filled=raw.get("fullyFilled", False),
+    )
+
+
+def _convert_subscription_snapshot(raw: Dict[str, Any]) -> SubscribedAddressSnapshot:
+    """Convert raw API response to SubscribedAddressSnapshot."""
+    raw_trades = raw.get("trades")
+    raw_positions = raw.get("positions")
+    raw_balances = raw.get("balances")
+    return SubscribedAddressSnapshot(
+        address=raw.get("address"),
+        trades=[_convert_trade(t) for t in raw_trades] if raw_trades else None,
+        positions=[_convert_position(p) for p in raw_positions] if raw_positions else None,
+        balances=[_convert_balance(b) for b in raw_balances] if raw_balances else None,
+        timestamp=raw.get("timestamp"),
     )
 
 
@@ -1149,8 +1164,9 @@ class Exchange(ABC):
     def watch_trades(
         self,
         outcome_id: str,
+        address: Optional[str] = None,
         since: Optional[int] = None,
-        limit: Optional[int] = None
+        limit: Optional[int] = None,
     ) -> List[Trade]:
         """
         Watch real-time trade updates via WebSocket.
@@ -1160,6 +1176,7 @@ class Exchange(ABC):
 
         Args:
             outcome_id: Outcome ID to watch
+            address: Public wallet to be watched
             since: Optional timestamp to filter trades from
             limit: Optional limit for number of trades
 
@@ -1175,6 +1192,8 @@ class Exchange(ABC):
         """
         try:
             args = [outcome_id]
+            if address is not None:
+                args.append(address)
             if since is not None:
                 args.append(since)
             if limit is not None:
@@ -1198,6 +1217,91 @@ class Exchange(ABC):
             return [_convert_trade(t) for t in data]
         except ApiException as e:
             raise Exception(f"Failed to watch trades: {self._extract_api_error(e)}") from None
+
+    def watch_address(
+        self,
+        address: str,
+        types: list[str] = None,
+    ) -> SubscribedAddressSnapshot:
+        """
+        Watch real-time updates of a public wallet via WebSocket.
+
+        Returns a promise that resolves with the next update(s).
+        Call repeatedly in a loop to stream updates (CCXT Pro pattern).
+
+        Args:
+            address: Public wallet to be watched
+            types: Subscription options including 'trades', 'positions', and 'balances'
+
+        Returns:
+            Next update(s)
+
+        Example:
+            >>> # Stream updates of a public wallet address
+            >>> while True:
+            ...     snapshots = exchange.watch_address(address, types)
+            ...     for snapshot in snapshots:
+            ...         print(f"Trade: {snapshot.trades}")
+        """
+        try:
+            args: list = [address]
+            if types is not None:
+                args.append(types)
+
+            body: dict = {"args": args}
+            creds = self._get_credentials_dict()
+            if creds:
+                body["credentials"] = creds
+
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            headers.update(self._get_auth_headers())
+
+            url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/watchAddress"
+            response = self._api_client.call_api(
+                method="POST",
+                url=url,
+                body=body,
+                header_params=headers,
+            )
+            response.read()
+            data = self._handle_response(json.loads(response.data))
+            return _convert_subscription_snapshot(data)
+        except ApiException as e:
+            raise Exception(f"Failed to watch address: {self._extract_api_error(e)}") from None
+
+    def unwatch_address(
+        self,
+        address: str,
+    ) -> None:
+        """
+        Stop watching a previously registered wallet address and release its resource updates.
+
+        Args:
+            address: Public wallet to be unwatched
+
+        Returns:
+            None
+        """
+        try:
+            body: dict = {"args": [address]}
+            creds = self._get_credentials_dict()
+            if creds:
+                body["credentials"] = creds
+
+            headers = {"Content-Type": "application/json", "Accept": "application/json"}
+            headers.update(self._get_auth_headers())
+
+            url = f"{self._api_client.configuration.host}/api/{self.exchange_name}/unwatchAddress"
+            response = self._api_client.call_api(
+                method="POST",
+                url=url,
+                body=body,
+                header_params=headers,
+            )
+            response.read()
+            return self._handle_response(json.loads(response.data))
+        except ApiException as e:
+            raise Exception(f"Failed to unwatch address: {self._extract_api_error(e)}") from None
 
     def watch_prices(self, market_address: str, callback: Optional[Any] = None) -> Any:
         """

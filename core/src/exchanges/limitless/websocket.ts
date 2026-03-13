@@ -1,4 +1,11 @@
-import { WebSocketClient, WebSocketConfig, ILogger } from '@limitless-exchange/sdk';
+import { ILogger, WebSocketClient, WebSocketConfig } from '@limitless-exchange/sdk';
+import { SubscribedAddressSnapshot, SubscriptionOption } from "../../subscriber/base";
+import {
+    buildLimitlessBalanceActivity,
+    GoldSkySubscriber,
+    LIMITLESS_DEFAULT_SUBSCRIPTION
+} from "../../subscriber/external/goldsky";
+import { AddressWatcher, WatcherConfig } from "../../subscriber/watcher";
 import { OrderBook, Trade } from '../../types';
 import { fetchOrderBook } from './fetchOrderBook';
 
@@ -7,7 +14,7 @@ const USDC_DECIMALS = 6;
 const USDC_SCALE = Math.pow(10, USDC_DECIMALS);
 
 /**
- * Convert raw orderbook size from smallest unit to human-readable USDC amount.
+ * Convert raw orderbook size from the smallest unit to human-readable USDC amount.
  */
 function convertSize(rawSize: number): number {
     return rawSize / USDC_SCALE;
@@ -20,6 +27,8 @@ export interface LimitlessWebSocketConfig extends Partial<WebSocketConfig> {
     logger?: ILogger;
     autoReconnect?: boolean;
     reconnectDelay?: number;
+    /** Watcher subscription configurations */
+    watcherConfig?: WatcherConfig;
 }
 
 /**
@@ -32,11 +41,15 @@ export interface LimitlessWebSocketConfig extends Partial<WebSocketConfig> {
  */
 export class LimitlessWebSocket {
     private client: WebSocketClient;
+    private readonly watcher: AddressWatcher;
     private config: LimitlessWebSocketConfig;
     private callApi: (operationId: string, params?: Record<string, any>) => Promise<any>;
     private orderbookCallbacks: Map<string, (orderbook: OrderBook) => void> = new Map();
     private priceCallbacks: Map<string, (data: any) => void> = new Map();
-    private orderbookResolvers: Map<string, Array<{ resolve: (ob: OrderBook) => void, reject: (err: any) => void }>> = new Map();
+    private orderbookResolvers: Map<string, Array<{
+        resolve: (ob: OrderBook) => void,
+        reject: (err: any) => void
+    }>> = new Map();
     private orderbookBuffers: Map<string, OrderBook[]> = new Map();
     private lastOrderbookTimestamps: Map<string, number> = new Map();
 
@@ -56,62 +69,19 @@ export class LimitlessWebSocket {
 
         // Set up event handlers
         this.setupEventHandlers();
-    }
 
-    private setupEventHandlers(): void {
-        // Handle orderbook updates
-        this.client.on('orderbookUpdate', (data: any) => {
-            const { marketSlug, orderbook } = data;
-            const pmxtOrderbook = this.transformOrderbookData(orderbook);
-
-            // Update timestamp for this market
-            this.lastOrderbookTimestamps.set(marketSlug, Date.now());
-
-            // Execute callback if registered
-            const callback = this.orderbookCallbacks.get(marketSlug);
-            if (callback) {
-                callback(pmxtOrderbook);
+        const watcherConfig = this.config.watcherConfig
+        const subscriber = new GoldSkySubscriber({
+            ...watcherConfig,
+            buildSubscription: LIMITLESS_DEFAULT_SUBSCRIPTION,
+        });
+        this.watcher = new AddressWatcher(
+            (address, types) => this.callApi("fetchWatchedAddressActivity", { address, types }),
+            {
+                subscriber,
+                buildActivity: buildLimitlessBalanceActivity,
             }
-
-            // Handle resolvers and buffers
-            const resolvers = this.orderbookResolvers.get(marketSlug) || [];
-            if (resolvers.length > 0) {
-                // If someone is waiting, give it to them immediately
-                const resolver = resolvers.shift()!;
-                resolver.resolve(pmxtOrderbook);
-            } else {
-                // Otherwise, buffer it for the next call
-                if (!this.orderbookBuffers.has(marketSlug)) {
-                    this.orderbookBuffers.set(marketSlug, []);
-                }
-                const buffer = this.orderbookBuffers.get(marketSlug)!;
-                buffer.push(pmxtOrderbook);
-                // Keep buffer size reasonable
-                if (buffer.length > 100) buffer.shift();
-            }
-        });
-
-        // Handle AMM price updates
-        this.client.on('newPriceData', (data: any) => {
-            const { marketAddress } = data;
-            const callback = this.priceCallbacks.get(marketAddress);
-            if (callback) {
-                callback(data);
-            }
-        });
-
-        // Handle connection events
-        this.client.on('connect', () => {
-            console.log('[LimitlessWS] Connected to WebSocket');
-        });
-
-        this.client.on('disconnect', (reason: string) => {
-            console.log(`[LimitlessWS] Disconnected from WebSocket: ${reason}`);
-        });
-
-        this.client.on('error', (error: Error) => {
-            console.error('[LimitlessWS] WebSocket error:', error);
-        });
+        );
     }
 
     /**
@@ -238,7 +208,7 @@ export class LimitlessWebSocket {
             await this.client.connect();
         }
 
-        await this.client.subscribe('orders'); // SDK uses 'orders' channel for user positional updates too? 
+        await this.client.subscribe('orders'); // SDK uses 'orders' channel for user positional updates too?
         // Actually, the channel type has 'subscribe_positions'. Let's check.
         // Wait, I saw 'orders' in SubscriptionChannel.
         // Let's use 'orders' as it's common for user data.
@@ -267,7 +237,7 @@ export class LimitlessWebSocket {
     /**
      * Legacy method - watch trades (not directly supported, falls back to orderbook)
      */
-    async watchTrades(marketSlug: string): Promise<Trade[]> {
+    async watchTrades(marketSlug: string, address?: string): Promise<Trade[]> {
         console.warn(
             '[LimitlessWS] watchTrades is not directly supported. ' +
             'Use watchOrderBook() for real-time orderbook updates or fetchOHLCV() for historical data.'
@@ -291,13 +261,22 @@ export class LimitlessWebSocket {
         });
     }
 
+    async watchAddress(address: string, types: SubscriptionOption[]): Promise<SubscribedAddressSnapshot> {
+        return this.watcher.watch(address, types);
+    }
+
+    async unwatchAddress(address: string): Promise<void> {
+        return this.watcher.unwatch(address);
+    }
+
     /**
      * Close the WebSocket connection.
      */
     async close(): Promise<void> {
         this.orderbookCallbacks.clear();
         this.priceCallbacks.clear();
-        this.client.disconnect();
+        await this.client.disconnect();
+        this.watcher.close();
     }
 
     /**
@@ -312,6 +291,62 @@ export class LimitlessWebSocket {
      */
     getClient(): WebSocketClient {
         return this.client;
+    }
+
+    private setupEventHandlers(): void {
+        // Handle orderbook updates
+        this.client.on('orderbookUpdate', (data: any) => {
+            const { marketSlug, orderbook } = data;
+            const pmxtOrderbook = this.transformOrderbookData(orderbook);
+
+            // Update timestamp for this market
+            this.lastOrderbookTimestamps.set(marketSlug, Date.now());
+
+            // Execute callback if registered
+            const callback = this.orderbookCallbacks.get(marketSlug);
+            if (callback) {
+                callback(pmxtOrderbook);
+            }
+
+            // Handle resolvers and buffers
+            const resolvers = this.orderbookResolvers.get(marketSlug) || [];
+            if (resolvers.length > 0) {
+                // If someone is waiting, give it to them immediately
+                const resolver = resolvers.shift()!;
+                resolver.resolve(pmxtOrderbook);
+            } else {
+                // Otherwise, buffer it for the next call
+                if (!this.orderbookBuffers.has(marketSlug)) {
+                    this.orderbookBuffers.set(marketSlug, []);
+                }
+                const buffer = this.orderbookBuffers.get(marketSlug)!;
+                buffer.push(pmxtOrderbook);
+                // Keep buffer size reasonable
+                if (buffer.length > 100) buffer.shift();
+            }
+        });
+
+        // Handle AMM price updates
+        this.client.on('newPriceData', (data: any) => {
+            const { marketAddress } = data;
+            const callback = this.priceCallbacks.get(marketAddress);
+            if (callback) {
+                callback(data);
+            }
+        });
+
+        // Handle connection events
+        this.client.on('connect', () => {
+            console.log('[LimitlessWS] Connected to WebSocket');
+        });
+
+        this.client.on('disconnect', (reason: string) => {
+            console.log(`[LimitlessWS] Disconnected from WebSocket: ${reason}`);
+        });
+
+        this.client.on('error', (error: Error) => {
+            console.error('[LimitlessWS] WebSocket error:', error);
+        });
     }
 
     private transformOrderbookData(orderbook: any): OrderBook {

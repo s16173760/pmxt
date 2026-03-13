@@ -6,18 +6,23 @@
  * which is licensed under the MIT License.
  */
 
-import { OrderBook, Trade, OrderLevel } from '../../types';
+import { SubscribedAddressSnapshot, SubscriptionOption } from '../../subscriber/base';
+import {
+    buildPolymarketActivity,
+    GoldSkySubscriber,
+    POLYMARKET_DEFAULT_SUBSCRIPTION,
+} from '../../subscriber/external/goldsky';
+import { AddressWatcher, WatcherConfig } from '../../subscriber/watcher';
+import { OrderBook, OrderLevel, QueuedPromise, Trade } from '../../types';
 
-interface QueuedPromise<T> {
-    resolve: (value: T | PromiseLike<T>) => void;
-    reject: (reason?: any) => void;
-}
 
 export interface PolymarketWebSocketConfig {
     /** Reconnection check interval in milliseconds (default: 5000) */
     reconnectIntervalMs?: number;
     /** Pending subscription flush interval in milliseconds (default: 100) */
     flushIntervalMs?: number;
+    /** Watcher subscription configurations */
+    watcherConfig?: WatcherConfig;
 }
 
 /**
@@ -26,14 +31,82 @@ export interface PolymarketWebSocketConfig {
  */
 export class PolymarketWebSocket {
     private manager: any;
+    private readonly watcher: AddressWatcher;
     private orderBookResolvers = new Map<string, QueuedPromise<OrderBook>[]>();
     private tradeResolvers = new Map<string, QueuedPromise<Trade[]>[]>();
     private orderBooks = new Map<string, OrderBook>();
     private config: PolymarketWebSocketConfig;
     private initializationPromise?: Promise<void>;
 
-    constructor(config: PolymarketWebSocketConfig = {}) {
+    constructor(callApi: (operationId: string, params?: Record<string, any>) => Promise<any>, config: PolymarketWebSocketConfig = {}) {
         this.config = config;
+        const watcherConfig = this.config.watcherConfig;
+        const subscriber = new GoldSkySubscriber({
+            ...watcherConfig,
+            buildSubscription: POLYMARKET_DEFAULT_SUBSCRIPTION,
+        });
+        this.watcher = new AddressWatcher(
+            (address, types) => callApi('fetchWatchedAddressActivity', { address, types }),
+            {
+                subscriber,
+                buildActivity: buildPolymarketActivity,
+            },
+        );
+    }
+
+    async watchOrderBook(id: string): Promise<OrderBook> {
+        await this.ensureInitialized();
+
+        // Subscribe to the asset if not already subscribed
+        const currentAssets = this.manager.getAssetIds();
+        if (!currentAssets.includes(id)) {
+            await this.manager.addSubscriptions([id]);
+        }
+
+        // Return a promise that resolves on the next orderbook update
+        return new Promise<OrderBook>((resolve, reject) => {
+            if (!this.orderBookResolvers.has(id)) {
+                this.orderBookResolvers.set(id, []);
+            }
+            this.orderBookResolvers.get(id)!.push({ resolve, reject });
+        });
+    }
+
+    async watchTrades(id: string, address?: string): Promise<Trade[]> {
+        if (address) {
+            return this.watcher.watch(address, ['trades'], id);
+        }
+
+        await this.ensureInitialized();
+
+        // Subscribe to the asset if not already subscribed
+        const currentAssets = this.manager.getAssetIds();
+        if (!currentAssets.includes(id)) {
+            await this.manager.addSubscriptions([id]);
+        }
+
+        // Return a promise that resolves on the next trade
+        return new Promise<Trade[]>((resolve, reject) => {
+            if (!this.tradeResolvers.has(id)) {
+                this.tradeResolvers.set(id, []);
+            }
+            this.tradeResolvers.get(id)!.push({ resolve, reject });
+        });
+    }
+
+    async watchAddress(address: string, types: SubscriptionOption[]): Promise<SubscribedAddressSnapshot> {
+        return this.watcher.watch(address, types);
+    }
+
+    async unwatchAddress(address: string): Promise<void> {
+        return this.watcher.unwatch(address);
+    }
+
+    async close() {
+        if (this.manager) {
+            await this.manager.clearState();
+        }
+        this.watcher.close();
     }
 
     private async ensureInitialized() {
@@ -68,14 +141,14 @@ export class PolymarketWebSocket {
                     {
                         reconnectAndCleanupIntervalMs: this.config.reconnectIntervalMs ?? 5000,
                         pendingFlushIntervalMs: this.config.flushIntervalMs ?? 100,
-                    }
+                    },
                 );
             } catch (e) {
                 const error = e as Error;
                 if (error.message.includes('Cannot find module')) {
                     throw new Error(
                         'Polymarket WebSocket support requires the "@nevuamarkets/poly-websockets" package.\n' +
-                        'To use this feature, please install it: npm install @nevuamarkets/poly-websockets'
+                        'To use this feature, please install it: npm install @nevuamarkets/poly-websockets',
                     );
                 }
                 throw e;
@@ -83,42 +156,6 @@ export class PolymarketWebSocket {
         })();
 
         return this.initializationPromise;
-    }
-
-    async watchOrderBook(id: string): Promise<OrderBook> {
-        await this.ensureInitialized();
-
-        // Subscribe to the asset if not already subscribed
-        const currentAssets = this.manager.getAssetIds();
-        if (!currentAssets.includes(id)) {
-            await this.manager.addSubscriptions([id]);
-        }
-
-        // Return a promise that resolves on the next orderbook update
-        return new Promise<OrderBook>((resolve, reject) => {
-            if (!this.orderBookResolvers.has(id)) {
-                this.orderBookResolvers.set(id, []);
-            }
-            this.orderBookResolvers.get(id)!.push({ resolve, reject });
-        });
-    }
-
-    async watchTrades(id: string): Promise<Trade[]> {
-        await this.ensureInitialized();
-
-        // Subscribe to the asset if not already subscribed
-        const currentAssets = this.manager.getAssetIds();
-        if (!currentAssets.includes(id)) {
-            await this.manager.addSubscriptions([id]);
-        }
-
-        // Return a promise that resolves on the next trade
-        return new Promise<Trade[]>((resolve, reject) => {
-            if (!this.tradeResolvers.has(id)) {
-                this.tradeResolvers.set(id, []);
-            }
-            this.tradeResolvers.get(id)!.push({ resolve, reject });
-        });
     }
 
     private handleBookSnapshot(event: any) {
@@ -210,12 +247,6 @@ export class PolymarketWebSocket {
         if (resolvers && resolvers.length > 0) {
             resolvers.forEach((r) => r.resolve(orderBook));
             this.orderBookResolvers.set(id, []);
-        }
-    }
-
-    async close() {
-        if (this.manager) {
-            await this.manager.clearState();
         }
     }
 }

@@ -1,4 +1,3 @@
-
 // ----------------------------------------------------------------------------
 // Core Data Models
 // ----------------------------------------------------------------------------
@@ -88,10 +87,17 @@ export interface Trade {
     price: number;
     amount: number;
     side: 'buy' | 'sell' | 'unknown';
+    outcomeId?: string;
 }
 
 export interface UserTrade extends Trade {
     orderId?: string;
+}
+
+
+export interface QueuedPromise<T> {
+    resolve: (value: T | PromiseLike<T>) => void;
+    reject: (reason?: any) => void;
 }
 
 // ----------------------------------------------------------------------------

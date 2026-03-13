@@ -53,9 +53,34 @@ pmxt.restart_server()
 
 ## Methods
 
-### `load_markets`
+### `implicit_api`
 
 How long (ms) a market snapshot created by `fetchMarketsPaginated` remains valid
+
+
+**Signature:**
+
+```python
+def implicit_api() -> List[ImplicitApiMethodInfo]:
+```
+
+**Parameters:**
+
+- None
+
+**Returns:** List[ImplicitApiMethodInfo] - Result
+
+**Example:**
+
+```python
+# No example available
+```
+
+
+---
+### `load_markets`
+
+Load and cache all markets from the exchange into `this.markets` and `this.marketsBySlug`.
 
 
 **Signature:**
@@ -528,12 +553,12 @@ Fetch current user positions across all markets.
 **Signature:**
 
 ```python
-def fetch_positions() -> List[Position]:
+def fetch_positions(address: Optional[str] = None) -> List[Position]:
 ```
 
 **Parameters:**
 
-- None
+- `address` (str) - **Optional**: Optional public wallet address
 
 **Returns:** List[[Position](#position)] - Array of user positions
 
@@ -557,12 +582,12 @@ Fetch account balances.
 **Signature:**
 
 ```python
-def fetch_balance() -> List[Balance]:
+def fetch_balance(address: Optional[str] = None) -> List[Balance]:
 ```
 
 **Parameters:**
 
-- None
+- `address` (str) - **Optional**: Optional public wallet address
 
 **Returns:** List[[Balance](#balance)] - Array of account balances
 
@@ -744,12 +769,13 @@ Watch trade executions in real-time via WebSocket.
 **Signature:**
 
 ```python
-def watch_trades(id: str, since: Optional[float] = None, limit: Optional[float] = None) -> List[Trade]:
+def watch_trades(id: str, address: Optional[str] = None, since: Optional[float] = None, limit: Optional[float] = None) -> List[Trade]:
 ```
 
 **Parameters:**
 
 - `id` (str): The Outcome ID to watch
+- `address` (str) - **Optional**: Public wallet address
 - `since` (float) - **Optional**: Optional timestamp to filter trades from
 - `limit` (float) - **Optional**: Optional limit for number of trades
 
@@ -763,6 +789,61 @@ while True:
     trades = exchange.watch_trades(outcome.outcome_id)
     for trade in trades:
         print(f"{trade.side} {trade.amount} @ {trade.price}")
+```
+
+
+---
+### `watch_address`
+
+Stream activity for a public wallet address
+
+
+**Signature:**
+
+```python
+def watch_address(address: str, types: Optional[List[SubscriptionOption]] = None) -> SubscribedAddressSnapshot:
+```
+
+**Parameters:**
+
+- `address` (str): Public wallet address to watch
+- `types` (List[SubscriptionOption]) - **Optional**: Subset of activity to watch (default: all types)
+
+**Returns:** SubscribedAddressSnapshot - Promise that resolves with the latest SubscribedAddressSnapshot snapshot
+
+**Example:**
+
+```python
+# Stream wallet activity
+while True:
+    activity = exchange.watch_address('0xabc...', ['trades', 'positions'])
+    print(activity.trades, activity.positions)
+```
+
+
+---
+### `unwatch_address`
+
+Stop watching a previously registered wallet address and release its resource updates.
+
+
+**Signature:**
+
+```python
+def unwatch_address(address: str) -> void:
+```
+
+**Parameters:**
+
+- `address` (str): Public wallet address to stop watching
+
+**Returns:** void - Result
+
+**Example:**
+
+```python
+# Stop watching
+exchange.unwatch_address('0xabc...')
 ```
 
 
@@ -789,31 +870,6 @@ def close() -> void:
 ```python
 # Close connections
 exchange.close()
-```
-
-
----
-### `implicit_api`
-
-Introspection getter: returns info about all implicit API methods.
-
-
-**Signature:**
-
-```python
-def implicit_api() -> List[ImplicitApiMethodInfo]:
-```
-
-**Parameters:**
-
-- None
-
-**Returns:** List[ImplicitApiMethodInfo] - Result
-
-**Example:**
-
-```python
-# No example available
 ```
 
 

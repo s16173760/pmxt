@@ -60,6 +60,8 @@ export class KalshiExchange extends PredictionMarketExchange {
     fetchOpenOrders: true as const,
     fetchPositions: true as const,
     fetchBalance: true as const,
+    watchAddress: false as const,
+    unwatchAddress: false as const,
     watchOrderBook: true as const,
     watchTrades: true as const,
     fetchMyTrades: true as const,
@@ -471,6 +473,7 @@ export class KalshiExchange extends PredictionMarketExchange {
 
   async watchTrades(
     id: string,
+    address?: string,
     since?: number,
     limit?: number,
   ): Promise<Trade[]> {

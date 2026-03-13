@@ -1,6 +1,6 @@
 /**
  * Data models for PMXT TypeScript SDK.
- * 
+ *
  * These are clean TypeScript interfaces that provide a user-friendly API.
  */
 
@@ -390,6 +390,7 @@ export interface BuiltOrder {
     raw: unknown;
 }
 
+
 /**
  * A list of UnifiedMarket objects with a convenience match() method.
  * Extends Array so all standard array operations work unchanged.
@@ -567,3 +568,34 @@ export interface EventFilterCriteria {
  * Function type for custom event filtering logic.
  */
 export type EventFilterFunction = (event: UnifiedEvent) => boolean;
+
+/**
+ * Subscription options.
+ */
+export type SubscriptionOption = 'trades' | 'positions' | 'balances';
+
+/**
+ * Subscription snapshot of a watched public wallet address.
+ */
+export interface SubscribedAddressSnapshot {
+    /** The wallet address being watched */
+    address: string;
+
+    /** Recent trades for this address
+     * (if the above SubscriptionOption 'trades' option was requested)
+     */
+    trades?: Trade[];
+
+    /** Current open positions for this address
+     * (if the above SubscriptionOption 'positions' option was requested)
+     */
+    positions?: Position[];
+
+    /** Current balances for this address
+     * (if the above SubscriptionOption 'balances' option was requested)
+     */
+    balances?: Balance[];
+
+    /** Unix timestamp (ms) of this snapshot */
+    timestamp: number;
+}
