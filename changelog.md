@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.20.1] - 2026-03-14
+
+### Fixed
+
+- **Error Mapper: SDK Error Extraction** (#56): Third-party SDK errors (e.g. `@polymarket/clob-client`) that attach HTTP metadata (`.status`, `.statusCode`, `.response`) to `Error` instances are now properly mapped to specific error classes (`InsufficientFunds`, `AuthenticationError`, `InvalidOrder`, etc.) instead of falling through to a generic `BadRequest`. The error mapper also extracts the real API error message from `.response.data` instead of using the SDK's generic `.message`.
+
+### Changed
+
+- **Error Mapper: Deduplicated Status Code Mapping**: Extracted shared `mapByStatusCode()` method to eliminate duplicated switch logic across axios, plain-object, and SDK error handling paths.
+
 ## [2.20.0] - 2026-03-14
 
 ### Added

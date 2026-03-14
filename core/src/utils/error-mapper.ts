@@ -51,37 +51,8 @@ export class ErrorMapper {
         // Handle plain objects with status/data (e.g., Polymarket clob-client)
         if (error && typeof error === 'object' && !Array.isArray(error) && !(error instanceof Error)) {
             if (error.status && typeof error.status === 'number') {
-                // Treat as axios-like error
                 const message = this.extractErrorMessage(error);
-                const status = error.status;
-                const data = error.data;
-
-                // Map by HTTP status code (same logic as mapAxiosError)
-                switch (status) {
-                    case 400:
-                        return this.mapBadRequestError(message, data);
-                    case 401:
-                        return new AuthenticationError(message, this.exchangeName);
-                    case 403:
-                        return new PermissionDenied(message, this.exchangeName);
-                    case 404:
-                        return this.mapNotFoundError(message, data);
-                    case 429:
-                        return this.mapRateLimitError(message, error);
-                    case 500:
-                    case 502:
-                    case 503:
-                    case 504:
-                        return new ExchangeNotAvailable(
-                            `Exchange error (${status}): ${message}`,
-                            this.exchangeName
-                        );
-                    default:
-                        return new BadRequest(
-                            `HTTP ${status}: ${message}`,
-                            this.exchangeName
-                        );
-                }
+                return this.mapByStatusCode(error.status, message, error.data, error);
             }
         }
 
@@ -91,6 +62,17 @@ export class ErrorMapper {
                 `Network error: ${error.message}`,
                 this.exchangeName
             );
+        }
+
+        // Handle Error instances with attached HTTP metadata (common in third-party SDKs)
+        if (error instanceof Error) {
+            const err: any = error;
+            const status = err.status ?? err.statusCode ?? err.response?.status ?? err.response?.statusCode;
+            if (typeof status === 'number') {
+                const message = this.extractErrorMessage(error);
+                const data = err.data ?? err.response?.data ?? err.response?.body;
+                return this.mapByStatusCode(status, message, data, err.response);
+            }
         }
 
         // Generic error fallback
@@ -120,7 +102,13 @@ export class ErrorMapper {
             );
         }
 
-        // Map by HTTP status code
+        return this.mapByStatusCode(status, message, data, error.response);
+    }
+
+    /**
+     * Maps an HTTP status code to the appropriate error class
+     */
+    protected mapByStatusCode(status: number, message: string, data: any, response?: any): BaseError {
         switch (status) {
             case 400:
                 return this.mapBadRequestError(message, data);
@@ -131,7 +119,7 @@ export class ErrorMapper {
             case 404:
                 return this.mapNotFoundError(message, data);
             case 429:
-                return this.mapRateLimitError(message, error.response);
+                return this.mapRateLimitError(message, response);
             case 500:
             case 502:
             case 503:
@@ -295,8 +283,16 @@ export class ErrorMapper {
             }
         }
 
-        // Standard Error object
+        // Standard Error object - check for attached response data from third-party SDKs
         if (error instanceof Error) {
+            const err: any = error;
+            const data = err.response?.data ?? err.data ?? err.body;
+            if (data) {
+                const extracted = this.extractFromData(data);
+                if (extracted) {
+                    return extracted;
+                }
+            }
             return error.message;
         }
 
@@ -314,5 +310,41 @@ export class ErrorMapper {
             }
         }
         return String(error);
+    }
+
+    /**
+     * Extracts a message string from a response data payload
+     */
+    protected extractFromData(data: any): string | undefined {
+        if (typeof data === 'string') {
+            return data;
+        }
+
+        if (data && typeof data === 'object') {
+            if (data.error) {
+                if (typeof data.error === 'string') {
+                    return data.error;
+                }
+                if (data.error.message) {
+                    return data.error.message;
+                }
+            }
+
+            if (data.message) {
+                return data.message;
+            }
+
+            if (data.errorMsg) {
+                return data.errorMsg;
+            }
+
+            try {
+                return JSON.stringify(data);
+            } catch {
+                return undefined;
+            }
+        }
+
+        return undefined;
     }
 }

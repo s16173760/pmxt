@@ -191,6 +191,65 @@ describe('ErrorMapper', () => {
             expect(mapped).toBeInstanceOf(BadRequest);
             expect(mapped.message).toBe('Generic error');
         });
+
+        it('should map Error with .status and .response.data (SDK-style)', () => {
+            const error = new Error('Response returned an error code');
+            error.status = 400;
+            error.response = { data: { errorMsg: 'Insufficient balance for order' } };
+            const mapped = mapper.mapError(error);
+            expect(mapped).toBeInstanceOf(InsufficientFunds);
+            expect(mapped.message).toBe('Insufficient balance for order');
+            expect(mapped.exchange).toBe('TestExchange');
+        });
+
+        it('should map Error with .statusCode (alternative convention)', () => {
+            const error = new Error('Request failed');
+            error.statusCode = 401;
+            const mapped = mapper.mapError(error);
+            expect(mapped).toBeInstanceOf(AuthenticationError);
+            expect(mapped.exchange).toBe('TestExchange');
+        });
+
+        it('should map Error with .response.status for 404', () => {
+            const error = new Error('Not found');
+            error.response = { status: 404, data: { message: 'Order abc123 not found' } };
+            const mapped = mapper.mapError(error);
+            expect(mapped).toBeInstanceOf(OrderNotFound);
+        });
+
+        it('should map Error with .response.status for 429', () => {
+            const error = new Error('Too many requests');
+            error.response = {
+                status: 429,
+                headers: { 'retry-after': '30' },
+            };
+            const mapped = mapper.mapError(error);
+            expect(mapped).toBeInstanceOf(RateLimitExceeded);
+            expect(mapped.retryAfter).toBe(30);
+        });
+
+        it('should map Error with .status for 503', () => {
+            const error = new Error('Service unavailable');
+            error.status = 503;
+            const mapped = mapper.mapError(error);
+            expect(mapped).toBeInstanceOf(ExchangeNotAvailable);
+        });
+
+        it('should extract message from Error .response.data over generic .message', () => {
+            const error = new Error('Response returned an error code');
+            error.status = 400;
+            error.response = { data: { message: 'Price must be a multiple of tick size' } };
+            const mapped = mapper.mapError(error);
+            expect(mapped).toBeInstanceOf(InvalidOrder);
+            expect(mapped.message).toBe('Price must be a multiple of tick size');
+        });
+
+        it('should fall back to .message when Error has no attached metadata', () => {
+            const error = new Error('Something went wrong');
+            const mapped = mapper.mapError(error);
+            expect(mapped).toBeInstanceOf(BadRequest);
+            expect(mapped.message).toBe('Something went wrong');
+        });
     });
 
     describe('extractErrorMessage', () => {
