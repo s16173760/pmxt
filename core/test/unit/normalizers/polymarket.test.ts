@@ -113,6 +113,22 @@ describe('PolymarketNormalizer.normalizeMarket', () => {
         expect(market!.volume24h).toBe(77000);
     });
 
+    test('should prefer market image over event image when both are present', () => {
+        const altMarket: PolymarketRawMarket = {
+            ...RAW_MARKET,
+            image: 'https://example.com/market-image.png',
+        };
+        const event: PolymarketRawEvent = {
+            ...RAW_EVENT,
+            image: 'https://example.com/event-image.png',
+            markets: [altMarket],
+        };
+
+        const market = normalizer.normalizeMarket(event);
+
+        expect(market!.image).toBe('https://example.com/market-image.png');
+    });
+
     test('should handle end_date_iso fallback', () => {
         const altMarket: PolymarketRawMarket = {
             ...RAW_MARKET,
