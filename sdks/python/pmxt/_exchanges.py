@@ -249,3 +249,34 @@ class Myriad(Exchange):
             base_url=base_url,
             auto_start_server=auto_start_server,
         )
+
+
+class Opinion(Exchange):
+    """Opinion exchange client."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        private_key: Optional[str] = None,
+        proxy_address: Optional[str] = None,
+        base_url: str = "http://localhost:3847",
+        auto_start_server: bool = True,
+    ):
+        """
+        Initialize Opinion client.
+
+        Args:
+            api_key: API key for authentication (optional)
+            private_key: Private key for authentication (optional)
+            proxy_address: Proxy/smart wallet address (optional)
+            base_url: Base URL of the PMXT sidecar server
+            auto_start_server: Automatically start server if not running (default: True)
+        """
+        super().__init__(
+            exchange_name="opinion",
+            api_key=api_key,
+            private_key=private_key,
+            proxy_address=proxy_address,
+            base_url=base_url,
+            auto_start_server=auto_start_server,
+        )

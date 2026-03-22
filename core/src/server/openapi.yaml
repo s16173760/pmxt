@@ -1143,6 +1143,7 @@ components:
           - probable
           - baozi
           - myriad
+          - opinion
       required: true
       description: The prediction market exchange to target.
   schemas:
