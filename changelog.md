@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.22.1] - 2026-03-23
+
+### Fixed
+
+- **Consistent OrderBook Error Handling**: Kalshi, Limitless, and Baozi now throw `NotFound` errors for non-existing orderbooks instead of silently returning empty data. All exchanges now behave consistently with Polymarket.
+
 ## [2.22.0] - 2026-03-22
 
 ### Added
