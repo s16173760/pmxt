@@ -48,6 +48,13 @@ from .errors import PmxtError, from_server_error
 from .server_manager import ServerManager
 
 
+def _resolve_outcome_id(value: Union[str, "MarketOutcome"]) -> str:
+    """Extract outcome_id string from a MarketOutcome or pass through a string."""
+    if isinstance(value, str):
+        return value
+    return value.outcome_id
+
+
 def _convert_outcome(raw: Dict[str, Any]) -> MarketOutcome:
     """Convert raw API response to MarketOutcome."""
     return MarketOutcome(
@@ -606,8 +613,9 @@ class Exchange(ABC):
         except Exception as e:
             raise self._parse_api_exception(e) from None
 
-    def fetch_order_book(self, id: str) -> OrderBook:
+    def fetch_order_book(self, id: Union[str, "MarketOutcome"]) -> OrderBook:
         try:
+            id = _resolve_outcome_id(id)
             args = []
             args.append(id)
             body: dict = {"args": args}
@@ -1012,7 +1020,7 @@ class Exchange(ABC):
 
     def fetch_ohlcv(
         self,
-        outcome_id: str,
+        outcome_id: Union[str, "MarketOutcome"],
         resolution: Optional[str] = None,
         limit: Optional[int] = None,
         start: Optional[datetime] = None,
@@ -1027,7 +1035,7 @@ class Exchange(ABC):
         - Kalshi: outcome.outcome_id is the Market Ticker
 
         Args:
-            outcome_id: Outcome ID (from market.outcomes[].outcome_id)
+            outcome_id: Outcome ID (from market.outcomes[].outcome_id), or a MarketOutcome object
             resolution: Candle resolution (e.g., "1h", "1d")
             limit: Maximum number of candles to return
             start: Start datetime for historical data
@@ -1047,6 +1055,7 @@ class Exchange(ABC):
             ... )
         """
         try:
+            outcome_id = _resolve_outcome_id(outcome_id)
             params_dict = {}
             if resolution:
                 params_dict["resolution"] = resolution
@@ -1077,7 +1086,7 @@ class Exchange(ABC):
 
     def fetch_trades(
         self,
-        outcome_id: str,
+        outcome_id: Union[str, "MarketOutcome"],
         limit: Optional[int] = None,
         since: Optional[int] = None,
         **kwargs
@@ -1100,6 +1109,7 @@ class Exchange(ABC):
             >>> trades = exchange.fetch_trades(outcome_id, limit=50)
         """
         try:
+            outcome_id = _resolve_outcome_id(outcome_id)
             params_dict = {}
             if limit:
                 params_dict["limit"] = limit
@@ -1126,7 +1136,7 @@ class Exchange(ABC):
 
     # WebSocket Streaming Methods
 
-    def watch_order_book(self, outcome_id: str, limit: Optional[int] = None) -> OrderBook:
+    def watch_order_book(self, outcome_id: Union[str, "MarketOutcome"], limit: Optional[int] = None) -> OrderBook:
         """
         Watch real-time order book updates via WebSocket.
 
@@ -1148,6 +1158,7 @@ class Exchange(ABC):
             ...     print(f"Best ask: {order_book.asks[0].price}")
         """
         try:
+            outcome_id = _resolve_outcome_id(outcome_id)
             args = [outcome_id]
             if limit is not None:
                 args.append(limit)
@@ -1173,7 +1184,7 @@ class Exchange(ABC):
 
     def watch_trades(
         self,
-        outcome_id: str,
+        outcome_id: Union[str, "MarketOutcome"],
         address: Optional[str] = None,
         since: Optional[int] = None,
         limit: Optional[int] = None,
@@ -1201,6 +1212,7 @@ class Exchange(ABC):
             ...         print(f"Trade: {trade.price} @ {trade.amount}")
         """
         try:
+            outcome_id = _resolve_outcome_id(outcome_id)
             args = [outcome_id]
             if address is not None:
                 args.append(address)

@@ -45,6 +45,15 @@ import { ServerManager } from "./server-manager.js";
 import { buildArgsWithOptionalOptions } from "./args.js";
 import { PmxtError, fromServerError } from "./errors.js";
 
+/**
+ * Resolve a MarketOutcome shorthand to a plain outcome ID string.
+ * Accepts either a raw string ID or a MarketOutcome object.
+ */
+function resolveOutcomeId(input: string | MarketOutcome): string {
+    if (typeof input === 'string') return input;
+    return input.outcomeId;
+}
+
 // Converter functions
 function convertMarket(raw: any): UnifiedMarket {
     const outcomes: MarketOutcome[] = (raw.outcomes || []).map((o: any) => ({
@@ -544,11 +553,12 @@ export abstract class Exchange {
         }
     }
 
-    async fetchOrderBook(id: string): Promise<OrderBook> {
+    async fetchOrderBook(id: string | MarketOutcome): Promise<OrderBook> {
         await this.initPromise;
+        const resolvedId = resolveOutcomeId(id);
         try {
             const args: any[] = [];
-            args.push(id);
+            args.push(resolvedId);
             const response = await fetch(`${this.config.basePath}/api/${this.exchangeName}/fetchOrderBook`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
@@ -817,10 +827,11 @@ export abstract class Exchange {
      * ```
      */
     async fetchOHLCV(
-        outcomeId: string,
+        outcomeId: string | MarketOutcome,
         params: any
     ): Promise<PriceCandle[]> {
         await this.initPromise;
+        const resolvedOutcomeId = resolveOutcomeId(outcomeId);
         try {
             const paramsDict: any = { resolution: params.resolution };
             if (params.start) {
@@ -834,7 +845,7 @@ export abstract class Exchange {
             }
 
             const requestBody: FetchOHLCVRequest = {
-                args: [outcomeId, paramsDict],
+                args: [resolvedOutcomeId, paramsDict],
                 credentials: this.getCredentials()
             };
 
@@ -861,10 +872,11 @@ export abstract class Exchange {
      * @returns List of trades
      */
     async fetchTrades(
-        outcomeId: string,
+        outcomeId: string | MarketOutcome,
         params: any
     ): Promise<Trade[]> {
         await this.initPromise;
+        const resolvedOutcomeId = resolveOutcomeId(outcomeId);
         try {
             const paramsDict: any = { resolution: params.resolution };
             if (params.limit) {
@@ -872,7 +884,7 @@ export abstract class Exchange {
             }
 
             const requestBody: FetchTradesRequest = {
-                args: [outcomeId, paramsDict],
+                args: [resolvedOutcomeId, paramsDict],
                 credentials: this.getCredentials()
             };
 
@@ -911,10 +923,11 @@ export abstract class Exchange {
      * }
      * ```
      */
-    async watchOrderBook(outcomeId: string, limit?: number): Promise<OrderBook> {
+    async watchOrderBook(outcomeId: string | MarketOutcome, limit?: number): Promise<OrderBook> {
         await this.initPromise;
+        const resolvedOutcomeId = resolveOutcomeId(outcomeId);
         try {
-            const args: any[] = [outcomeId];
+            const args: any[] = [resolvedOutcomeId];
             if (limit !== undefined) {
                 args.push(limit);
             }
@@ -961,14 +974,15 @@ export abstract class Exchange {
      * ```
      */
     async watchTrades(
-        outcomeId: string,
+        outcomeId: string | MarketOutcome,
         address?: string,
         since?: number,
         limit?: number
     ): Promise<Trade[]> {
         await this.initPromise;
+        const resolvedOutcomeId = resolveOutcomeId(outcomeId);
         try {
-            const args: any[] = [outcomeId];
+            const args: any[] = [resolvedOutcomeId];
             if (address !== undefined) {
                 args.push(address);
             }
