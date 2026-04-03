@@ -10,6 +10,7 @@ export * from './exchanges/kalshi-demo';
 export * from './exchanges/probable';
 export * from './exchanges/baozi';
 export * from './exchanges/myriad';
+export * from './exchanges/opinion';
 export * from './server/app';
 export * from './server/utils/port-manager';
 export * from './server/utils/lock-file';
@@ -21,6 +22,7 @@ import { KalshiDemoExchange } from './exchanges/kalshi-demo';
 import { ProbableExchange } from './exchanges/probable';
 import { BaoziExchange } from './exchanges/baozi';
 import { MyriadExchange } from './exchanges/myriad';
+import { OpinionExchange } from './exchanges/opinion';
 
 const pmxt = {
     Polymarket: PolymarketExchange,
@@ -29,7 +31,8 @@ const pmxt = {
     KalshiDemo: KalshiDemoExchange,
     Probable: ProbableExchange,
     Baozi: BaoziExchange,
-    Myriad: MyriadExchange
+    Myriad: MyriadExchange,
+    Opinion: OpinionExchange,
 };
 
 export const Polymarket = PolymarketExchange;
@@ -39,5 +42,6 @@ export const KalshiDemo = KalshiDemoExchange;
 export const Probable = ProbableExchange;
 export const Baozi = BaoziExchange;
 export const Myriad = MyriadExchange;
+export const Opinion = OpinionExchange;
 
 export default pmxt;

@@ -9,9 +9,6 @@ import {
     PredictionMarketExchange,
     MarketFetchParams,
     EventFetchParams,
-    OHLCVParams,
-    HistoryFilterParams,
-    TradesParams,
     ExchangeCredentials,
 } from '../../BaseExchange';
 import {
@@ -26,32 +23,25 @@ import {
     CreateOrderParams,
 } from '../../types';
 import { AuthenticationError, InvalidOrder, ExchangeNotAvailable } from '../../errors';
-import { fetchMarkets } from './fetchMarkets';
-import { fetchEvents } from './fetchEvents';
-import { fetchOHLCV } from './fetchOHLCV';
-import { fetchOrderBook } from './fetchOrderBook';
-import { fetchTrades } from './fetchTrades';
 import { BaoziAuth } from './auth';
 import { BaoziWebSocket } from './websocket';
 import { baoziErrorMapper } from './errors';
+import { BaoziFetcher } from './fetcher';
+import { BaoziNormalizer } from './normalizer';
 import {
     PROGRAM_ID,
     LAMPORTS_PER_SOL,
-    USER_POSITION_DISCRIMINATOR_BS58,
-    RACE_POSITION_DISCRIMINATOR_BS58,
     PLACE_BET_SOL_DISCRIMINATOR,
     BET_ON_RACE_OUTCOME_SOL_DISCRIMINATOR,
-    parseUserPosition,
-    parseRacePosition,
     parseMarket,
     parseRaceMarket,
+    deriveConfigPda,
+    derivePositionPda,
+    deriveRacePositionPda,
+    deriveMarketPda,
+    deriveRaceMarketPda,
     mapBooleanToUnified,
     mapRaceToUnified,
-    deriveConfigPda,
-    deriveMarketPda,
-    derivePositionPda,
-    deriveRaceMarketPda,
-    deriveRacePositionPda,
 } from './utils';
 
 export interface BaoziExchangeOptions {
@@ -72,16 +62,22 @@ export class BaoziExchange extends PredictionMarketExchange {
         fetchOpenOrders: 'emulated' as const,
         fetchPositions: true as const,
         fetchBalance: true as const,
+        watchAddress: false as const,
+        unwatchAddress: false as const,
         watchOrderBook: true as const,
         watchTrades: false as const,
         fetchMyTrades: false as const,
         fetchClosedOrders: false as const,
         fetchAllOrders: false as const,
+        buildOrder: false as const,
+        submitOrder: false as const,
     };
 
     private auth?: BaoziAuth;
     private connection: Connection;
     private ws?: BaoziWebSocket;
+    private readonly fetcher: BaoziFetcher;
+    private readonly normalizer: BaoziNormalizer;
 
     constructor(options?: ExchangeCredentials | BaoziExchangeOptions) {
         let credentials: ExchangeCredentials | undefined;
@@ -107,6 +103,9 @@ export class BaoziExchange extends PredictionMarketExchange {
         if (credentials?.privateKey) {
             this.auth = new BaoziAuth(credentials);
         }
+
+        this.fetcher = new BaoziFetcher(this.connection);
+        this.normalizer = new BaoziNormalizer();
     }
 
     get name(): string {
@@ -114,48 +113,48 @@ export class BaoziExchange extends PredictionMarketExchange {
     }
 
     // -----------------------------------------------------------------------
-    // Market Data
+    // Market Data (fetcher -> normalizer)
     // -----------------------------------------------------------------------
 
     protected async fetchMarketsImpl(params?: MarketFetchParams): Promise<UnifiedMarket[]> {
-        return fetchMarkets(this.connection, params);
+        const rawMarkets = await this.fetcher.fetchRawMarkets(params);
+        return this.normalizer.normalizeMarkets(rawMarkets, params);
     }
 
     protected async fetchEventsImpl(params: EventFetchParams): Promise<UnifiedEvent[]> {
-        return fetchEvents(this.connection, params);
+        const rawMarkets = await this.fetcher.fetchRawEvents(params);
+        return this.normalizer.normalizeEvents(rawMarkets, {
+            query: params.query,
+            limit: params.limit,
+            offset: params.offset,
+            status: params.status,
+            searchIn: params.searchIn,
+        });
     }
 
     async fetchOHLCV(): Promise<PriceCandle[]> {
-        return fetchOHLCV();
+        // Baozi has no historical price/trade API without a custom indexer
+        return [];
     }
 
     async fetchOrderBook(id: string): Promise<OrderBook> {
-        return fetchOrderBook(this.connection, id);
+        const rawMarket = await this.fetcher.fetchRawOrderBook(id);
+        return this.normalizer.normalizeOrderBook(rawMarket, id);
     }
 
     async fetchTrades(): Promise<Trade[]> {
-        return fetchTrades();
+        // Baozi has no trade history API without a custom indexer
+        return [];
     }
 
     // -----------------------------------------------------------------------
-    // User Data
+    // User Data (fetcher -> normalizer)
     // -----------------------------------------------------------------------
 
     async fetchBalance(): Promise<Balance[]> {
-        try {
-            const auth = this.ensureAuth();
-            const lamports = await this.connection.getBalance(auth.getPublicKey());
-            const solBalance = lamports / LAMPORTS_PER_SOL;
-
-            return [{
-                currency: 'SOL',
-                total: solBalance,
-                available: solBalance,
-                locked: 0,
-            }];
-        } catch (error: any) {
-            throw baoziErrorMapper.mapError(error);
-        }
+        const auth = this.ensureAuth();
+        const rawBalance = await this.fetcher.fetchRawUserBalance(auth.getPublicKey());
+        return this.normalizer.normalizeBalance(rawBalance);
     }
 
     async fetchPositions(): Promise<Position[]> {
@@ -163,124 +162,49 @@ export class BaoziExchange extends PredictionMarketExchange {
             const auth = this.ensureAuth();
             const userPubkey = auth.getPublicKey();
 
-            // Fetch boolean and race positions in parallel
-            const [booleanPositions, racePositions] = await Promise.all([
-                this.connection.getProgramAccounts(PROGRAM_ID, {
-                    filters: [
-                        { memcmp: { offset: 0, bytes: USER_POSITION_DISCRIMINATOR_BS58 } },
-                        { memcmp: { offset: 8, bytes: userPubkey.toBase58() } },
-                    ],
-                }),
-                this.connection.getProgramAccounts(PROGRAM_ID, {
-                    filters: [
-                        { memcmp: { offset: 0, bytes: RACE_POSITION_DISCRIMINATOR_BS58 } },
-                        { memcmp: { offset: 8, bytes: userPubkey.toBase58() } },
-                    ],
-                }),
-            ]);
+            const { booleanPositions, racePositions } = await this.fetcher.fetchRawUserPositions(userPubkey);
 
-            const positions: Position[] = [];
+            // Build market lookup for current prices
+            const marketLookup = new Map<string, UnifiedMarket>();
 
-            // Process boolean positions
-            for (const account of booleanPositions) {
-                try {
-                    const pos = parseUserPosition(account.account.data);
-                    if (pos.claimed) continue;
-
-                    // Try to fetch the market to get current prices
-                    const marketPda = deriveMarketPda(pos.marketId);
-                    let currentYesPrice = 0;
-                    let currentNoPrice = 0;
-                    let marketTitle = `Market #${pos.marketId}`;
-
+            for (const { parsed: pos } of booleanPositions) {
+                if (pos.claimed) continue;
+                const marketPda = deriveMarketPda(pos.marketId);
+                const marketPdaStr = marketPda.toString();
+                if (!marketLookup.has(marketPdaStr)) {
                     try {
-                        const marketInfo = await this.connection.getAccountInfo(marketPda);
-                        if (marketInfo) {
-                            const market = parseMarket(marketInfo.data);
-                            const unified = mapBooleanToUnified(market, marketPda.toString());
-                            currentYesPrice = unified.yes?.price ?? 0;
-                            currentNoPrice = unified.no?.price ?? 0;
-                            marketTitle = market.question;
+                        const rawMarket = await this.fetcher.fetchRawMarketAccount(marketPda);
+                        if (rawMarket) {
+                            const unified = this.normalizer.normalizeMarket(rawMarket);
+                            if (unified) marketLookup.set(marketPdaStr, unified);
                         }
                     } catch {
                         // Use defaults if market fetch fails
                     }
-
-                    const yesSOL = Number(pos.yesAmount) / LAMPORTS_PER_SOL;
-                    const noSOL = Number(pos.noAmount) / LAMPORTS_PER_SOL;
-
-                    if (yesSOL > 0) {
-                        positions.push({
-                            marketId: marketPda.toString(),
-                            outcomeId: `${marketPda.toString()}-YES`,
-                            outcomeLabel: 'Yes',
-                            size: yesSOL,
-                            entryPrice: 0, // Not tracked on-chain for pari-mutuel
-                            currentPrice: currentYesPrice,
-                            unrealizedPnL: 0, // Pari-mutuel doesn't have fixed unrealized P&L
-                        });
-                    }
-
-                    if (noSOL > 0) {
-                        positions.push({
-                            marketId: marketPda.toString(),
-                            outcomeId: `${marketPda.toString()}-NO`,
-                            outcomeLabel: 'No',
-                            size: noSOL,
-                            entryPrice: 0,
-                            currentPrice: currentNoPrice,
-                            unrealizedPnL: 0,
-                        });
-                    }
-                } catch {
-                    // Skip malformed position accounts
                 }
             }
 
-            // Process race positions
-            for (const account of racePositions) {
-                try {
-                    const pos = parseRacePosition(account.account.data);
-                    if (pos.claimed) continue;
-
-                    const racePda = deriveRaceMarketPda(pos.marketId);
-                    const racePdaStr = racePda.toString();
-
-                    // Try to fetch the race market to get current prices and labels
-                    let outcomePrices: number[] = [];
-                    let outcomeLabels: string[] = [];
+            for (const { parsed: pos } of racePositions) {
+                if (pos.claimed) continue;
+                const racePda = deriveRaceMarketPda(pos.marketId);
+                const racePdaStr = racePda.toString();
+                if (!marketLookup.has(racePdaStr)) {
                     try {
-                        const marketInfo = await this.connection.getAccountInfo(racePda);
-                        if (marketInfo) {
-                            const raceMarket = parseRaceMarket(marketInfo.data);
-                            const unified = mapRaceToUnified(raceMarket, racePdaStr);
-                            outcomePrices = unified.outcomes.map(o => o.price);
-                            outcomeLabels = unified.outcomes.map(o => o.label);
+                        const rawMarket = await this.fetcher.fetchRawMarketAccount(racePda);
+                        if (rawMarket) {
+                            const unified = this.normalizer.normalizeMarket(rawMarket);
+                            if (unified) marketLookup.set(racePdaStr, unified);
                         }
                     } catch {
                         // Use defaults if market fetch fails
                     }
-
-                    for (let i = 0; i < pos.bets.length; i++) {
-                        const betSOL = Number(pos.bets[i]) / LAMPORTS_PER_SOL;
-                        if (betSOL <= 0) continue;
-
-                        positions.push({
-                            marketId: racePdaStr,
-                            outcomeId: `${racePdaStr}-${i}`,
-                            outcomeLabel: outcomeLabels[i] || `Outcome ${i}`,
-                            size: betSOL,
-                            entryPrice: 0,
-                            currentPrice: outcomePrices[i] ?? 0,
-                            unrealizedPnL: 0,
-                        });
-                    }
-                } catch {
-                    // Skip malformed position accounts
                 }
             }
 
-            return positions;
+            const boolPos = this.normalizer.normalizeBooleanPositions(booleanPositions, marketLookup);
+            const racePos = this.normalizer.normalizeRacePositions(racePositions, marketLookup);
+
+            return [...boolPos, ...racePos];
         } catch (error: any) {
             throw baoziErrorMapper.mapError(error);
         }
@@ -330,7 +254,7 @@ export class BaoziExchange extends PredictionMarketExchange {
                         { pubkey: configPda, isSigner: false, isWritable: false },
                         { pubkey: marketPubkey, isSigner: false, isWritable: true },
                         { pubkey: positionPda, isSigner: false, isWritable: true },
-                        { pubkey: PROGRAM_ID, isSigner: false, isWritable: false }, // whitelist (optional → pass program ID)
+                        { pubkey: PROGRAM_ID, isSigner: false, isWritable: false },
                         { pubkey: keypair.publicKey, isSigner: true, isWritable: true },
                         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
                     ],
@@ -375,7 +299,7 @@ export class BaoziExchange extends PredictionMarketExchange {
                         { pubkey: configPda, isSigner: false, isWritable: false },
                         { pubkey: marketPubkey, isSigner: false, isWritable: true },
                         { pubkey: racePositionPda, isSigner: false, isWritable: true },
-                        { pubkey: PROGRAM_ID, isSigner: false, isWritable: false }, // whitelist (optional)
+                        { pubkey: PROGRAM_ID, isSigner: false, isWritable: false },
                         { pubkey: keypair.publicKey, isSigner: true, isWritable: true },
                         { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
                     ],
@@ -398,10 +322,10 @@ export class BaoziExchange extends PredictionMarketExchange {
                 marketId: params.marketId,
                 outcomeId: params.outcomeId,
                 side: 'buy',
-                type: 'market', // Pari-mutuel bets are always instant
+                type: 'market',
                 price: undefined,
                 amount: params.amount,
-                status: 'filled', // Pari-mutuel bets fill instantly
+                status: 'filled',
                 filled: params.amount,
                 remaining: 0,
                 timestamp: Date.now(),
@@ -419,8 +343,6 @@ export class BaoziExchange extends PredictionMarketExchange {
     }
 
     async fetchOrder(orderId: string): Promise<Order> {
-        // In pari-mutuel, there are no pending orders. The "order" is the tx signature.
-        // We can verify the transaction was confirmed and extract market info.
         try {
             const tx = await this.connection.getTransaction(orderId, {
                 maxSupportedTransactionVersion: 0,
@@ -430,7 +352,6 @@ export class BaoziExchange extends PredictionMarketExchange {
                 throw new Error(`Transaction not found: ${orderId}`);
             }
 
-            // Try to extract market/outcome from the transaction instruction
             let marketId = '';
             let outcomeId = '';
             let amount = 0;
@@ -452,7 +373,6 @@ export class BaoziExchange extends PredictionMarketExchange {
 
                     if (!isBooleanBet && !isRaceBet) continue;
 
-                    // Account keys[1] is the market PDA for both instruction types
                     const marketKeyIndex = ix.accountKeyIndexes[1];
                     const marketKey = message.staticAccountKeys[marketKeyIndex];
                     marketId = marketKey.toString();
@@ -489,7 +409,7 @@ export class BaoziExchange extends PredictionMarketExchange {
     }
 
     async fetchOpenOrders(): Promise<Order[]> {
-        // Pari-mutuel bets execute instantly — there are never open orders
+        // Pari-mutuel bets execute instantly -- there are never open orders
         return [];
     }
 

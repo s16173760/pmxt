@@ -41,6 +41,7 @@ const TYPE_REF_MAP = {
   CreateOrderParams: 'CreateOrderParams',
   MyTradesParams: 'MyTradesParams',
   OrderHistoryParams: 'OrderHistoryParams',
+  BuiltOrder: 'BuiltOrder',
 };
 
 // ---------------------------------------------------------------------------
@@ -661,6 +662,32 @@ const SCHEMAS = {
       fee: { type: 'number' },
     },
   },
+  BuiltOrder: {
+    type: 'object',
+    description: 'An order built but not yet submitted, ready for inspection or middleware forwarding',
+    properties: {
+      exchange: { type: 'string', description: 'The exchange name this order was built for' },
+      params: { $ref: '#/components/schemas/CreateOrderParams' },
+      signedOrder: {
+        type: 'object',
+        additionalProperties: true,
+        description: 'For CLOB exchanges (Polymarket): the EIP-712 signed order ready to POST',
+      },
+      tx: {
+        type: 'object',
+        description: 'For on-chain AMM exchanges: the EVM transaction payload (reserved for future use)',
+        properties: {
+          to: { type: 'string' },
+          data: { type: 'string' },
+          value: { type: 'string' },
+          chainId: { type: 'integer' },
+        },
+      },
+      raw: {
+        description: 'The raw, exchange-native payload. Always present.',
+      },
+    },
+  },
   MyTradesParams: {
     type: 'object',
     properties: {
@@ -759,7 +786,7 @@ function buildSpec(methodSpecs) {
           name: 'exchange',
           schema: {
             type: 'string',
-            enum: ['polymarket', 'kalshi', 'limitless', 'probable', 'baozi', 'myriad'],
+            enum: ['polymarket', 'kalshi', 'limitless', 'probable', 'baozi', 'myriad', 'opinion'],
           },
           required: true,
           description: 'The prediction market exchange to target.',

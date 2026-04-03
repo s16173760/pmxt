@@ -1,6 +1,6 @@
 /**
- * Auto-generated from /home/harry-riddle/dev/github.com/0xharryriddle/pmxt/core/specs/polymarket/PolymarketClobAPI.yaml
- * Generated at: 2026-02-19T07:21:04.362Z
+ * Auto-generated from /Users/samueltinnerholm/Documents/GitHub/pmxt/core/specs/polymarket/PolymarketClobAPI.yaml
+ * Generated at: 2026-03-21T08:02:59.429Z
  * Do not edit manually -- run "npm run fetch:openapi" to regenerate.
  */
 export const polymarketClobSpec = {

@@ -1,0 +1,148 @@
+import { OHLCVParams } from '../../BaseExchange';
+import { UnifiedMarket, UnifiedEvent, PriceCandle, OrderBook, Trade, UserTrade, Position } from '../../types';
+import { IExchangeNormalizer } from '../interfaces';
+import { mapMarketToUnified, mapIntervalToFidelity } from './utils';
+import {
+    PolymarketRawEvent,
+    PolymarketRawOHLCVPoint,
+    PolymarketRawOrderBook,
+    PolymarketRawTrade,
+    PolymarketRawPosition,
+} from './fetcher';
+
+export class PolymarketNormalizer implements IExchangeNormalizer<PolymarketRawEvent, PolymarketRawEvent> {
+
+    normalizeMarket(raw: PolymarketRawEvent): UnifiedMarket | null {
+        if (!raw) return null;
+
+        // For market-level normalization, we flatten event -> markets
+        // This returns the first market; use normalizeMarketsFromEvents for full results
+        const markets = this.normalizeMarketsFromEvent(raw, { useQuestionAsCandidateFallback: false });
+        return markets.length > 0 ? markets[0] : null;
+    }
+
+    normalizeMarketsFromEvent(raw: PolymarketRawEvent, options: { useQuestionAsCandidateFallback?: boolean } = {}): UnifiedMarket[] {
+        if (!raw || !raw.markets) return [];
+
+        const results: UnifiedMarket[] = [];
+        for (const market of raw.markets) {
+            const unified = mapMarketToUnified(raw, market, options);
+            if (unified) results.push(unified);
+        }
+        return results;
+    }
+
+    normalizeEvent(raw: PolymarketRawEvent): UnifiedEvent | null {
+        if (!raw) return null;
+
+        const markets = this.normalizeMarketsFromEvent(raw, { useQuestionAsCandidateFallback: true });
+
+        return {
+            id: raw.id || raw.slug || '',
+            title: raw.title || '',
+            description: (raw.description as string) || '',
+            slug: raw.slug || '',
+            markets,
+            volume24h: markets.reduce((sum, m) => sum + m.volume24h, 0),
+            volume: markets.some(m => m.volume !== undefined)
+                ? markets.reduce((sum, m) => sum + (m.volume ?? 0), 0)
+                : undefined,
+            url: `https://polymarket.com/event/${raw.slug}`,
+            image: (raw.image as string) || `https://polymarket.com/api/og?slug=${raw.slug}`,
+            category: (raw.category as string) || raw.tags?.[0]?.label,
+            tags: raw.tags?.map((t: any) => t.label) || [],
+        } as UnifiedEvent;
+    }
+
+    normalizeOHLCV(raw: { history: PolymarketRawOHLCVPoint[] }, params: OHLCVParams): PriceCandle[] {
+        const history = raw.history || [];
+        const fidelity = mapIntervalToFidelity(params.resolution);
+        const resolutionMs = fidelity * 60 * 1000;
+
+        const buckets = new Map<number, PriceCandle>();
+
+        for (const item of history) {
+            const rawMs = item.t * 1000;
+            const snappedMs = Math.floor(rawMs / resolutionMs) * resolutionMs;
+            const price = Number(item.p);
+            const volume = Number(item.s || item.v || 0);
+
+            if (!buckets.has(snappedMs)) {
+                buckets.set(snappedMs, {
+                    timestamp: snappedMs,
+                    open: price,
+                    high: price,
+                    low: price,
+                    close: price,
+                    volume: volume,
+                });
+            } else {
+                const candle = buckets.get(snappedMs)!;
+                candle.high = Math.max(candle.high, price);
+                candle.low = Math.min(candle.low, price);
+                candle.close = price;
+                candle.volume = (candle.volume || 0) + volume;
+            }
+        }
+
+        const candles = Array.from(buckets.values()).sort((a, b) => a.timestamp - b.timestamp);
+
+        if (params.limit && candles.length > params.limit) {
+            return candles.slice(-params.limit);
+        }
+
+        return candles;
+    }
+
+    normalizeOrderBook(raw: PolymarketRawOrderBook, id: string): OrderBook {
+        const bids = (raw.bids || []).map((level: any) => ({
+            price: parseFloat(level.price),
+            size: parseFloat(level.size),
+        })).sort((a: { price: number }, b: { price: number }) => b.price - a.price);
+
+        const asks = (raw.asks || []).map((level: any) => ({
+            price: parseFloat(level.price),
+            size: parseFloat(level.size),
+        })).sort((a: { price: number }, b: { price: number }) => a.price - b.price);
+
+        return {
+            bids,
+            asks,
+            timestamp: raw.timestamp ? (typeof raw.timestamp === 'string' ? new Date(raw.timestamp).getTime() : Number(raw.timestamp)) : Date.now(),
+        };
+    }
+
+    normalizeTrade(raw: PolymarketRawTrade, index: number): Trade {
+        return {
+            id: raw.id || `${raw.timestamp}-${raw.price}`,
+            timestamp: raw.timestamp * 1000,
+            price: parseFloat(raw.price),
+            amount: parseFloat(raw.size || raw.amount || '0'),
+            side: raw.side === 'BUY' ? 'buy' as const : raw.side === 'SELL' ? 'sell' as const : 'unknown' as const,
+        };
+    }
+
+    normalizeUserTrade(raw: PolymarketRawTrade, index: number): UserTrade {
+        return {
+            id: raw.id || raw.transactionHash || String(raw.timestamp),
+            timestamp: typeof raw.timestamp === 'number' ? raw.timestamp * 1000 : Date.now(),
+            price: parseFloat(raw.price || '0'),
+            amount: parseFloat(raw.size || raw.amount || '0'),
+            side: raw.side === 'BUY' ? 'buy' as const : raw.side === 'SELL' ? 'sell' as const : 'unknown' as const,
+            orderId: raw.orderId,
+        };
+    }
+
+    normalizePosition(raw: PolymarketRawPosition): Position {
+        return {
+            marketId: raw.conditionId || '',
+            outcomeId: raw.asset || '',
+            outcomeLabel: raw.outcome || 'Unknown',
+            size: parseFloat(raw.size),
+            entryPrice: parseFloat(raw.avgPrice),
+            currentPrice: parseFloat(raw.curPrice || '0'),
+            unrealizedPnL: parseFloat(raw.cashPnl || '0'),
+            realizedPnL: parseFloat(raw.realizedPnl || '0'),
+        };
+    }
+}

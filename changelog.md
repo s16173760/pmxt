@@ -2,6 +2,175 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.22.2] - 2026-04-02
+
+### Fixed
+
+- **MarketOutcome Shorthand Consistency**: `fetchOrderBook`, `fetchOHLCV`, `fetchTrades`, `watchOrderBook`, and `watchTrades` now accept a `MarketOutcome` object directly (e.g. `market.yes`) in both Python and TypeScript SDKs, matching the existing behavior of `createOrder` and `buildOrder`.
+
+## [2.22.1] - 2026-03-23
+
+### Fixed
+
+- **Consistent OrderBook Error Handling**: Kalshi, Limitless, and Baozi now throw `NotFound` errors for non-existing orderbooks instead of silently returning empty data. All exchanges now behave consistently with Polymarket.
+
+## [2.22.0] - 2026-03-22
+
+### Added
+
+- **Opinion Exchange Integration**: Full support for Opinion prediction market -- markets, events, OHLCV, order book, positions, orders, execution price, and WebSocket streaming. Includes `fetchMyTrades`, `fetchClosedOrders`, `fetchAllOrders`, and `cancelOrder`. Does not yet support `fetchTrades` or `fetchBalance`.
+
+## [2.21.2] - 2026-03-20
+
+### Fixed
+
+- **Polymarket Per-Market Images**: Multi-market events (e.g. FIFA World Cup, Presidential Nominee) now correctly use each market's own image instead of the parent event image. Image precedence is now `market.image` > `event.image` > OG fallback.
+
+## [2.21.1] - 2026-03-19
+
+### Added
+
+- **Zenodo DOI Integration**: Zenodo now automatically creates a DOI for each release, enabling reliable academic citation.
+
+## [2.21.0] - 2026-03-15
+
+### Added
+
+- **Typed Error Classes (Python SDK)**: 14 error classes (`BadRequest`, `AuthenticationError`, `RateLimitExceeded`, `NotFoundError`, etc.) mirroring `core/src/errors.ts`. Server error responses are automatically parsed into typed exceptions via `from_server_error()`. All catch blocks in the client now raise specific `PmxtError` subclasses instead of generic `Exception`.
+- **Typed Error Classes (TypeScript SDK)**: Matching error hierarchy with `fromServerError()` factory. `handleResponse()` and all HTTP error paths now throw typed `PmxtError` subclasses. All error classes exported from the package.
+
+### Fixed
+
+- **Credential Logging (Security)**: Removed plaintext logging of API credentials in Polymarket auth flow.
+- **Hardcoded Price Fallbacks**: Replaced `0.5` fallback prices with `0` in Kalshi, Baozi, and Myriad normalizers. Missing price data now correctly indicates "no price" instead of silently fabricating a 50-cent midpoint.
+
+## [2.20.3] - 2026-03-15
+
+### Fixed
+
+- **Kalshi API v2 Compatibility**: Handle renamed trade fields (`yes_price` → `yes_price_dollars`, `count` → `count_fp`). Normalizer now parses both old (cents int) and new (dollar string) formats, fixing `NaN` prices and `undefined` amounts in `fetchTrades` / `fetchMyTrades`.
+
+### Changed
+
+- **Compliance Test Hardening**: `fetchOHLCV` tries multiple resolutions (`1d`, `6h`, `1h`) coarsest-first across top markets by volume instead of giving up early. `watchTrades` filters for markets traded within the last 5 minutes and applies a 10-minute recency gate before attempting WebSocket watches.
+- **Broader Skip Conditions**: `isSkippableError` now handles `AuthenticationError`, `PermissionDenied`, missing credentials, and ESM import failures. Individual tests (`createOrder`, `fetchPositions`) cover additional expected rejection messages.
+- **KalshiDemoExchange Excluded**: Removed from compliance test matrix (redundant, no separate demo credentials).
+- **SDK Integration Tests**: Added server-availability guard so tests skip gracefully when the PMXT server is not running.
+
+## [2.20.2] - 2026-03-14
+
+### Fixed
+
+- **Probable Events API**: Handle raw array response instead of expected `{ events: [] }` wrapper.
+- **Test Import**: Remove vitest import from client-args test (project uses Jest).
+
+### Changed
+
+- **3-Layer Architecture**: Introduced fetcher/normalizer/SDK layer separation across all exchanges (Myriad, Polymarket, Kalshi, Limitless, Baozi, Probable).
+- **Stale File Cleanup**: Removed superseded `fetchX.ts` files from all exchanges, rewired websocket modules to use the new fetcher layer.
+
+## [2.20.1] - 2026-03-14
+
+### Fixed
+
+- **Error Mapper: SDK Error Extraction** (#56): Third-party SDK errors (e.g. `@polymarket/clob-client`) that attach HTTP metadata (`.status`, `.statusCode`, `.response`) to `Error` instances are now properly mapped to specific error classes (`InsufficientFunds`, `AuthenticationError`, `InvalidOrder`, etc.) instead of falling through to a generic `BadRequest`. The error mapper also extracts the real API error message from `.response.data` instead of using the SDK's generic `.message`.
+
+### Changed
+
+- **Error Mapper: Deduplicated Status Code Mapping**: Extracted shared `mapByStatusCode()` method to eliminate duplicated switch logic across axios, plain-object, and SDK error handling paths.
+
+## [2.20.0] - 2026-03-14
+
+### Added
+
+- **Address Watcher & Subscriber System**: Introduced `watchAddress()` and `unwatchAddress()` methods on `BaseExchange`, along with a new subscriber infrastructure (`core/src/subscriber/`) for monitoring on-chain address activity. Supports optional address parameter for flexible subscription management.
+- **GoldSky Integration**: Added GoldSky GraphQL subscription implementation (`core/src/subscriber/external/goldsky.ts`) for real-time on-chain event streaming. Integrated into the Limitless exchange for live data feeds.
+- **Whale Tracker Examples**: Added Python and TypeScript example scripts (`core/examples/social/`) demonstrating how to track large-position holders using the SDK.
+- **SDK: `buildOrder` / `submitOrder` Support**: Both the Python and TypeScript SDKs now expose `buildOrder()` and `submitOrder()` methods, along with the `BuiltOrder` type, enabling the two-step order workflow introduced in v2.19.0.
+- **Trade `outcomeId` Field**: Added `outcomeId` (asset ID) to the `Trade` type for clearer asset-level trade identification.
+
+### Fixed
+
+- **Kalshi Orderbook**: Switched from the removed legacy `orderbook` field to `orderbook_fp`, fixing broken orderbook fetches on the Kalshi exchange.
+- **Limitless `baseUrl` Parameter**: Fixed incorrect base URL handling in the Limitless exchange configuration.
+- **Exchange Imports**: Fixed missing or incorrect `index.ts` imports across exchange modules.
+- **Test Infrastructure**: Replaced vitest imports with Jest globals in price tests to match the project's test runner.
+- **Whale Tracker Examples & SDK Bugs**: Fixed issues in example scripts and resolved minor SDK client bugs.
+- **TypeScript SDK Merge Conflicts**: Resolved merge conflicts in the TypeScript SDK client.
+
+### Changed
+
+- **Polymarket WebSocket**: Enriched the Polymarket websocket implementation with improved event handling and user position tracking.
+- **Limitless WebSocket & GoldSky Integration**: Refactored the Limitless exchange to integrate GoldSky watcher and subscriber, with improved websocket configuration.
+- **Exchange Interfaces**: Refactored `BaseExchange` interfaces, updated type names, and standardized exchange interface implementations across Polymarket, Limitless, Myriad, and others.
+- **Price Helpers**: Centralized exchange price helpers and standardized argument building across exchanges.
+- **Watcher Dispatch Optimization**: Updated the watcher to dispatch events only when there is an actual change, reducing unnecessary notifications.
+- **OpenAPI & API Reference**: Auto-regenerated `openapi.yaml` and `API_REFERENCE.md` to reflect all new endpoints and types.
+- **SDK Models & Documentation**: Updated Python and TypeScript SDK models, API reference docs, and added client example code.
+
+## [2.19.6] - 2026-03-06
+
+### Added
+
+- **TypeScript SDK Auto-Generation**: Upgraded `sdks/typescript/scripts/generate-client-methods.js` to derive return types and patterns directly from the `BaseExchange.ts` AST, mirroring the Python generator. The manual `METHOD_RETURN_CONFIG` has been eliminated, permanently removing the risk of documentation and signature drift.
+
+### Fixed
+
+- **CI/CD: SDK Drift Guards**: Removed the `paths` filter from `python-client-check.yml` and `typescript-client-check.yml`. These drift guards now run on *every* pull request. Previously, manual edits to `client.py` or `client.ts` would bypass the check if the PR didn't also touch `BaseExchange.ts` or the generator scripts.
+
+## [2.19.5] - 2026-03-06
+
+### Fixed
+
+- **SDK: Resilient Authentication (Python & TypeScript)**: Eliminated "Unauthorized: Invalid or missing access token" errors caused by sidecar server restarts. Both the Python and TypeScript SDKs now read the access token fresh from the `~/.pmxt/server.lock` file on every request via a new `getAuthHeaders` helper. This ensures that if the server rebooted and rotated tokens, existing `Exchange` instances (like `Polymarket`) automatically pick up the new valid token on their next call, removing the need for developers to manually re-instantiate clients.
+- **SDK: Generator Persistence (Python & TypeScript)**: Updated both `sdks/python/scripts/generate-client-methods.js` and `sdks/typescript/scripts/generate-client-methods.js` to emit the live header retrieval pattern, ensuring authentication resilience is maintained in all future auto-generated methods.
+
+## [2.19.4] - 2026-03-06
+
+### Added
+
+- **Python SDK Auto-Generation**: Added a reflection script (`sdks/python/scripts/generate-client-methods.js`) to automatically generate Python SDK client methods directly from the TypeScript `BaseExchange.ts` AST. This completely eliminates API structure drift between the TypeScript core and the Python client, ensuring new methods and parameter changes immediately reflect in Python. Added a CI guard (`python-client-check.yml`) to enforce synchronization on all Pull Requests.
+
+### Fixed
+
+- **Compliance Tests: Resilient Exchange Availability Checks**: Compliance tests no longer fail when an exchange's API is temporarily unavailable (e.g., Myriad returning a Heroku 503 error page). Previously, any `ExchangeNotAvailable` or `NetworkError` exception would propagate as a test failure, making CI fragile against external service outages. A new `isSkippableError(error)` helper in `core/test/compliance/shared.ts` returns `true` for these error types (plus the existing "not implemented" and "not supported" string checks), and all 18 compliance test files now call it uniformly instead of ad-hoc string comparisons. Tests now log a skip message and return instead of failing.
+
+- **`generate-openapi.test.ts` Spec Leak**: The OpenAPI auto-generation test temporarily injects a `testDummyMethod` into `BaseExchange.ts` and regenerates the spec to verify the generator works. However, `afterAll` only restored `BaseExchange.ts` — not `openapi.yaml` — leaving the `testDummyMethod` endpoint permanently in the committed spec and silently dropping the `close` endpoint's description. `afterAll` now also restores `openapi.yaml` to its pre-test state.
+
+## [2.19.3] - 2026-03-04
+
+### Fixed
+
+- **TypeScript build failure due to missing `buildOrder` and `submitOrder` in exchange `has` objects**: When the new build-only order methods were added to the `ExchangeHas` interface, several exchange implementations were not updated to include these properties. Added `buildOrder: false` and `submitOrder: false` to BaoziExchange, LimitlessExchange, MyriadExchange, and ProbableExchange to match the interface requirements.
+
+## [2.19.1] - 2026-03-04
+
+### Fixed
+
+- **OpenAPI Schema for `BuiltOrder`**: The `buildOrder` and `submitOrder` endpoints referenced the `BuiltOrder` type in the OpenAPI spec but the schema definition was missing from the components section, causing SDK code generation to fail. The `BuiltOrder` schema is now properly defined in the OpenAPI generator.
+
+## [2.19.0] - 2026-03-04
+
+### Added
+
+- **Build-Only Order Mode**: Introduced `buildOrder()` and `submitOrder()` methods enabling a two-step order workflow. This allows integrators (e.g., Smart Order Routers) to build exchange-native order payloads, inspect or forward them through middleware, then submit them later without reconstructing parameters.
+  - **New Type**: `BuiltOrder` interface containing the exchange name, original params, and exchange-native payload (with optional `signedOrder` for CLOB exchanges and reserved `tx` field for future on-chain exchanges).
+  - **New Methods**: `buildOrder(params)` constructs the order without submitting; `submitOrder(built)` submits a pre-built order.
+  - **Capability Flags**: Both methods exposed in `exchange.has` (e.g., `exchange.has.buildOrder`, `exchange.has.submitOrder`).
+  - **Polymarket Support**: `buildOrder` uses the CLOB client's `createOrder()` method to sign the order; `submitOrder` uses `postOrder()` to submit the signed payload. Refactored `createOrder` to delegate to both for backwards compatibility.
+  - **Kalshi Support**: `buildOrder` constructs the request body without making an HTTP call; `submitOrder` POSTs the pre-built body to the CreateOrder endpoint. Refactored `createOrder` to maintain compatibility.
+  - **Limitless**: Not yet supported (`buildOrder: false`), as the SDK lacks a distinct build-without-submit pattern.
+
+### Changed
+
+- **OpenAPI Auto-generation**: Updated the OpenAPI generator to recognize the new `BuiltOrder` type and auto-generate corresponding REST endpoints for `buildOrder` and `submitOrder`.
+
+## [2.18.1] - 2026-02-28
+
+### Fixed
+
+- **Kalshi `UnifiedEvent.description` always empty**: Kalshi's `mututals_description` field is always `null` in their API responses, so `UnifiedEvent.description` was an empty string for every event. The Kalshi adapter now derives a description from the markets' `rules_primary` text by extracting the longest common prefix and suffix across all child markets and substituting the variable region with `{x}`. For example, a 34-market event produces `"If {x} announces a presidential campaign to contest the presidential nomination of the Democratic party for the 2028 U.S. presidential election, then the market resolves to Yes."` Single-market events return the `rules_primary` text as-is. Events where no meaningful template can be extracted (shared fixed text < 20 chars, or all markets identical) fall back to the first market's `rules_primary`.
+
 ## [2.18.0] - 2026-02-27
 
   ### Fixed

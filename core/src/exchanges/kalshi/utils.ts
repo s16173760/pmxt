@@ -1,5 +1,6 @@
 import { UnifiedMarket, MarketOutcome, CandleInterval } from "../../types";
 import { addBinaryOutcomes } from "../../utils/market-utils";
+import { fromKalshiCents, invertKalshiUnified } from "./price";
 
 export function mapMarketToUnified(
   event: any,
@@ -10,11 +11,11 @@ export function mapMarketToUnified(
   // Calculate price
   let price = 0.5;
   if (market.last_price) {
-    price = market.last_price / 100;
+    price = fromKalshiCents(market.last_price);
   } else if (market.yes_ask && market.yes_bid) {
-    price = (market.yes_ask + market.yes_bid) / 200;
+    price = (fromKalshiCents(market.yes_ask) + fromKalshiCents(market.yes_bid)) / 2;
   } else if (market.yes_ask) {
-    price = market.yes_ask / 100;
+    price = fromKalshiCents(market.yes_ask);
   }
 
   // Extract candidate name
@@ -44,7 +45,7 @@ export function mapMarketToUnified(
       outcomeId: `${market.ticker}-NO`,
       marketId: market.ticker,
       label: candidateName ? `Not ${candidateName}` : "No",
-      price: 1 - price,
+      price: invertKalshiUnified(price),
       priceChange24h: -priceChange, // Inverse change for No? simplified assumption
     },
   ];

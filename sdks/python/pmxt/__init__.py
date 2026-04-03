@@ -17,8 +17,24 @@ Example:
 """
 
 from .client import Exchange
-from ._exchanges import Polymarket, Limitless, Kalshi, KalshiDemo, Probable, Baozi, Myriad
+from ._exchanges import Polymarket, Limitless, Kalshi, KalshiDemo, Probable, Baozi, Myriad, Opinion
 from .server_manager import ServerManager
+from .errors import (
+    PmxtError,
+    BadRequest,
+    AuthenticationError,
+    PermissionDenied,
+    NotFoundError,
+    OrderNotFound,
+    MarketNotFound,
+    EventNotFound,
+    RateLimitExceeded,
+    InvalidOrder,
+    InsufficientFunds,
+    ValidationError,
+    NetworkError,
+    ExchangeNotAvailable,
+)
 from .models import (
     UnifiedMarket,
     UnifiedEvent,
@@ -31,6 +47,7 @@ from .models import (
     UserTrade,
     PaginatedMarketsResult,
     Order,
+    BuiltOrder,
     Position,
     Balance,
 )
@@ -61,11 +78,27 @@ __all__ = [
     "Probable",
     "Baozi",
     "Myriad",
+    "Opinion",
     "Exchange",
     # Server Management
     "ServerManager",
     "stop_server",
     "restart_server",
+    # Errors
+    "PmxtError",
+    "BadRequest",
+    "AuthenticationError",
+    "PermissionDenied",
+    "NotFoundError",
+    "OrderNotFound",
+    "MarketNotFound",
+    "EventNotFound",
+    "RateLimitExceeded",
+    "InvalidOrder",
+    "InsufficientFunds",
+    "ValidationError",
+    "NetworkError",
+    "ExchangeNotAvailable",
     # Data Models
     "UnifiedMarket",
     "UnifiedEvent",
@@ -78,6 +111,7 @@ __all__ = [
     "UserTrade",
     "PaginatedMarketsResult",
     "Order",
+    "BuiltOrder",
     "Position",
     "Balance",
 ]

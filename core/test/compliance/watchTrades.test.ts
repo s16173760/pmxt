@@ -1,4 +1,4 @@
-import { exchangeClasses, validateTrade, hasAuth, initExchange } from './shared';
+import { exchangeClasses, validateTrade, hasAuth, initExchange, isSkippableError } from './shared';
 
 describe('Compliance: watchTrades', () => {
     exchangeClasses.forEach(({ name, cls }) => {
@@ -13,38 +13,30 @@ describe('Compliance: watchTrades', () => {
             try {
                 console.info(`[Compliance] Testing ${name}.watchTrades`);
 
+                // -----------------------------------------------------------
+                // Phase 1: Discover actively-traded markets via REST
+                // -----------------------------------------------------------
                 const markets = await exchange.fetchMarkets({ limit: 25, sort: 'volume' });
                 if (!markets || markets.length === 0) {
                     throw new Error(`${name}: No markets found to test watchTrades`);
                 }
 
-                let tradeReceived: any;
-                let testedOutcomeId = '';
-                let marketFound = false;
-
-                // Optimization: Watch multiple outcomes in parallel.
                 const CONCURRENT_WATCHERS = 50;
 
-                // Discovery Phase: Find markets that actually have recent trades
                 let candidates = markets.slice(0, 50);
 
-                // Cap candidates for the deep REST scan (rate limits)
-                // For Kalshi we increase this to find high-activity markets
+                // For Kalshi, pull a larger pool sorted by volume to maximise
+                // the chance of finding markets with real-time activity.
                 const scanLimit = (name === 'KalshiExchange') ? 50 : 20;
 
                 if (name === 'KalshiExchange') {
-                    // Strategy: Fetch many markets sorted by 24h volume to find the most active ones
                     console.info(`[Compliance] Finding high-volume markets for ${name}...`);
-
                     const volumeMarkets = await exchange.fetchMarkets({
                         limit: 5000,
                         sort: 'volume',
                         status: 'active'
                     });
-
                     console.info(`[Compliance] ${name}: Found ${volumeMarkets.length} active markets sorted by volume.`);
-
-                    // Use the top volume markets as candidates
                     if (volumeMarkets.length > 0) {
                         candidates = volumeMarkets.slice(0, scanLimit);
                     }
@@ -59,7 +51,7 @@ describe('Compliance: watchTrades', () => {
 
                 console.info(`[Compliance] Scanning top ${candidates.length} markets for recent activity...`);
 
-                // Helper for throttled execution
+                // Throttled REST scan: fetch last trade per market
                 const chunkedChecks = async () => {
                     const results = [];
                     const CHUNK_SIZE = 5;
@@ -77,7 +69,6 @@ describe('Compliance: watchTrades', () => {
                             return null;
                         }));
                         results.push(...chunkResults);
-                        // Small delay between chunks
                         if (i + CHUNK_SIZE < candidates.length) await new Promise(r => setTimeout(r, 500));
                     }
                     return results;
@@ -85,23 +76,44 @@ describe('Compliance: watchTrades', () => {
 
                 const results = await chunkedChecks();
 
+                const now = Date.now();
+                const FIVE_MINUTES = 5 * 60 * 1000;
+
                 const activeMarketsList = results
                     .filter((r): r is ScoredMarket => r !== null)
-                    .sort((a, b) => b.lastTradeTs - a.lastTradeTs) // Newest first
-                    .map(r => r.market)
-                    .slice(0, CONCURRENT_WATCHERS);
+                    .sort((a, b) => b.lastTradeTs - a.lastTradeTs);
 
-                // Fallback to volume-based if no recent trades found
-                const marketsToUse = activeMarketsList.length > 0 ? activeMarketsList : candidates.slice(0, CONCURRENT_WATCHERS);
+                // Prefer markets that traded within the last 5 minutes
+                const recentlyActive = activeMarketsList.filter(r => (now - r.lastTradeTs) < FIVE_MINUTES);
 
-                const newestDateStr = (activeMarketsList.length > 0 && !isNaN(activeMarketsList[0].lastTradeTs))
-                    ? new Date(activeMarketsList[0].lastTradeTs).toISOString()
-                    : 'N/A';
+                const bestCandidates = recentlyActive.length > 0
+                    ? recentlyActive.map(r => r.market)
+                    : activeMarketsList.map(r => r.market);
 
-                console.info(`[Compliance] Selected ${marketsToUse.length} markets. Most recent trade in set: ${newestDateStr}`);
+                const marketsToUse = bestCandidates.slice(0, CONCURRENT_WATCHERS);
+
+                if (marketsToUse.length === 0) {
+                    // No markets with any trade history found — fall back to
+                    // highest-volume markets as a last resort
+                    marketsToUse.push(...candidates.slice(0, CONCURRENT_WATCHERS));
+                }
+
+                const newestTs = activeMarketsList.length > 0 ? activeMarketsList[0].lastTradeTs : NaN;
+                const newestDateStr = !isNaN(newestTs) ? new Date(newestTs).toISOString() : 'N/A';
+                const ageStr = !isNaN(newestTs) ? `${Math.round((now - newestTs) / 1000)}s ago` : 'unknown';
+
+                console.info(`[Compliance] Selected ${marketsToUse.length} markets (${recentlyActive.length} traded <5min). Most recent trade: ${newestDateStr} (${ageStr})`);
+
+                // If no market has traded in the last 10 minutes, there's no
+                // reasonable expectation a trade will arrive within our timeout.
+                const TEN_MINUTES = 10 * 60 * 1000;
+                if (isNaN(newestTs) || (now - newestTs) > TEN_MINUTES) {
+                    console.info(`[Compliance] ${name}.watchTrades skipped: no markets with recent trade activity (most recent: ${ageStr})`);
+                    return;
+                }
 
                 const outcomesToWatch = marketsToUse
-                    .map((m: any) => m.outcomes[0]) // Pick first outcome of each market
+                    .map((m: any) => m.outcomes[0])
                     .filter((o: any) => o !== undefined);
 
                 if (outcomesToWatch.length === 0) {
@@ -110,18 +122,14 @@ describe('Compliance: watchTrades', () => {
 
                 console.info(`[Compliance] Watching ${outcomesToWatch.length} outcomes concurrently for activity...`);
 
+                // -----------------------------------------------------------
+                // Phase 2: Watch concurrently, race against timeout
+                // -----------------------------------------------------------
                 const watchers = outcomesToWatch.map(async (outcome: any) => {
                     try {
                         const result = await exchange.watchTrades(outcome.outcomeId);
                         return { result, outcomeId: outcome.outcomeId };
                     } catch (error: any) {
-                        // Check for critical errors that should abort the test immediately (like missing auth)
-                        const msg = error.message.toLowerCase();
-                        if (msg.includes('not supported') || msg.includes('authentication') || msg.includes('credentials') || msg.includes('api key')) {
-                            throw error;
-                        }
-                        // For generic timeouts or socket errors, we just rethrow.
-                        // Promise.any will wait for other outcomes to succeed.
                         throw error;
                     }
                 });
@@ -132,18 +140,24 @@ describe('Compliance: watchTrades', () => {
                 });
 
                 try {
-                    // Start the race: wait for ANY outcome to yield a trade OR the global timeout
                     const winner = await Promise.race([
                         Promise.any(watchers),
                         globalTimeout
                     ]) as { result: any, outcomeId: string };
 
-                    tradeReceived = winner.result;
-                    testedOutcomeId = winner.outcomeId;
-                    marketFound = true;
+                    const tradeReceived = winner.result;
+                    const testedOutcomeId = winner.outcomeId;
+
+                    expect(tradeReceived).toBeDefined();
+                    if (Array.isArray(tradeReceived)) {
+                        expect(tradeReceived.length).toBeGreaterThan(0);
+                        for (const trade of tradeReceived) {
+                            validateTrade(trade, name, testedOutcomeId);
+                        }
+                    } else {
+                        validateTrade(tradeReceived, name, testedOutcomeId);
+                    }
                 } catch (error: any) {
-                    // If it's an AggregateError from Promise.any, it means ALL watchers failed.
-                    // We might want to see the individual errors for debugging.
                     if (error.name === 'AggregateError') {
                         throw new Error(`${name}: All ${watchers.length} watchers failed. First error: ${error.errors[0]?.message || 'Unknown error'}`);
                     }
@@ -152,19 +166,9 @@ describe('Compliance: watchTrades', () => {
                     clearTimeout(timeoutId!);
                 }
 
-                expect(tradeReceived).toBeDefined();
-                if (Array.isArray(tradeReceived)) {
-                    expect(tradeReceived.length).toBeGreaterThan(0);
-                    for (const trade of tradeReceived) {
-                        validateTrade(trade, name, testedOutcomeId);
-                    }
-                } else {
-                    validateTrade(tradeReceived, name, testedOutcomeId);
-                }
-
             } catch (error: any) {
                 const msg = error.message.toLowerCase();
-                if (msg.includes('not supported') || msg.includes('not implemented') || msg.includes('unavailable') || msg.includes('authentication') || msg.includes('credentials') || msg.includes('api key')) {
+                if (isSkippableError(error) || msg.includes('unavailable')) {
                     console.info(`[Compliance] ${name}.watchTrades skipped/unsupported: ${error.message}`);
                     return;
                 }

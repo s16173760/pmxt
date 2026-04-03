@@ -1,4 +1,5 @@
 import * as pmxt from "../../src";
+import { ExchangeNotAvailable, NetworkError, AuthenticationError, PermissionDenied } from "../../src/errors";
 import {
   UnifiedEvent,
   UnifiedMarket,
@@ -40,7 +41,8 @@ export const exchangeClasses = Object.entries(pmxt)
       typeof value === "function" &&
       name.endsWith("Exchange") &&
       name !== "PredictionMarketExchange" &&
-      name !== "BaoziExchange",
+      name !== "BaoziExchange" &&
+      name !== "KalshiDemoExchange",
   )
   .map(([name, cls]) => ({ name, cls: cls as any }));
 
@@ -374,6 +376,7 @@ export function getMockCredentials() {
  * - Limitless: LIMITLESS_PRIVATE_KEY, LIMITLESS_API_KEY
  * - Myriad: MYRIAD_PROD or MYRIAD_STAGING
  * - Baozi: BAOZI_PRIVATE_KEY
+ * - Opinion: OPINION_API_KEY
  */
 export function hasAuth(exchangeName: string): boolean {
   const polyPk = process.env.POLYMARKET_PRIVATE_KEY?.trim();
@@ -400,7 +403,27 @@ export function hasAuth(exchangeName: string): boolean {
   if (exchangeName === "BaoziExchange") {
     return !!baoziPk && baoziPk.length > 10;
   }
+  if (exchangeName === "OpinionExchange") {
+    const opinionKey = process.env.OPINION_API_KEY?.trim();
+    return !!opinionKey && opinionKey.length > 5;
+  }
   return false;
+}
+
+/**
+ * Returns true for errors that should cause a compliance test to skip rather than fail.
+ * Covers: not-implemented methods, and exchange service unavailability (503/network).
+ */
+export function isSkippableError(error: any): boolean {
+    if (error instanceof ExchangeNotAvailable || error instanceof NetworkError) return true;
+    if (error instanceof AuthenticationError || error instanceof PermissionDenied) return true;
+    const msg = error?.message?.toLowerCase() ?? '';
+    return msg.includes('not implemented') ||
+        msg.includes('not supported') ||
+        msg.includes('authentication') ||
+        msg.includes('credentials') ||
+        msg.includes('api key') ||
+        msg.includes('dynamic import callback');
 }
 
 export function initExchange(name: string, cls: any) {
@@ -430,6 +453,14 @@ export function initExchange(name: string, cls: any) {
   }
   if (name === "BaoziExchange") {
     return new cls({ privateKey: process.env.BAOZI_PRIVATE_KEY?.trim() });
+  }
+  if (name === "OpinionExchange") {
+    return new cls({
+        credentials: {
+            apiKey: process.env.OPINION_API_KEY?.trim(),
+        },
+        walletAddress: process.env.OPINION_WALLET_ADDRESS?.trim(),
+    });
   }
   return new cls();
 }

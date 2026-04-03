@@ -22,11 +22,13 @@
 import { Exchange, Polymarket, Kalshi, KalshiDemo, Limitless, Myriad, Probable, Baozi } from "./pmxt/client.js";
 import { ServerManager } from "./pmxt/server-manager.js";
 import * as models from "./pmxt/models.js";
+import * as errors from "./pmxt/errors.js";
 
 export { Exchange, Polymarket, Kalshi, KalshiDemo, Limitless, Myriad, Probable, Baozi, PolymarketOptions } from "./pmxt/client.js";
 export { ServerManager } from "./pmxt/server-manager.js";
 export { MarketList } from "./pmxt/models.js";
 export type * from "./pmxt/models.js";
+export * from "./pmxt/errors.js";
 
 
 const defaultManager = new ServerManager();
@@ -51,7 +53,8 @@ const pmxt = {
     ServerManager,
     stopServer,
     restartServer,
-    ...models
+    ...models,
+    ...errors
 };
 
 export default pmxt;

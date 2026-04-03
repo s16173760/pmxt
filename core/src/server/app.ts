@@ -7,6 +7,7 @@ import { KalshiDemoExchange } from "../exchanges/kalshi-demo";
 import { ProbableExchange } from "../exchanges/probable";
 import { BaoziExchange } from "../exchanges/baozi";
 import { MyriadExchange } from "../exchanges/myriad";
+import { OpinionExchange } from "../exchanges/opinion";
 import { ExchangeCredentials } from "../BaseExchange";
 import { BaseError } from "../errors";
 
@@ -19,6 +20,7 @@ const defaultExchanges: Record<string, any> = {
   probable: null,
   baozi: null,
   myriad: null,
+  opinion: null,
 };
 
 export async function startServer(port: number, accessToken: string) {
@@ -206,6 +208,13 @@ function createExchange(name: string, credentials?: ExchangeCredentials) {
           process.env.MYRIAD_PROD,
         privateKey:
           credentials?.privateKey || process.env.MYRIAD_WALLET_ADDRESS,
+      });
+    case "opinion":
+      return new OpinionExchange({
+        apiKey: credentials?.apiKey || process.env.OPINION_API_KEY,
+        privateKey:
+          credentials?.privateKey || process.env.OPINION_PRIVATE_KEY,
+        funderAddress: credentials?.funderAddress,
       });
     default:
       throw new Error(`Unknown exchange: ${name}`);

@@ -20,10 +20,8 @@ import {
   Order,
   Position,
   CreateOrderParams,
+  BuiltOrder,
 } from "../../types";
-import { fetchMarkets } from "./fetchMarkets";
-import { fetchEvents } from "./fetchEvents";
-import { fetchOHLCV } from "./fetchOHLCV";
 import { KalshiAuth } from "./auth";
 import { validateIdFormat } from "../../utils/validation";
 import { KalshiWebSocket, KalshiWebSocketConfig } from "./websocket";
@@ -32,6 +30,9 @@ import { AuthenticationError } from "../../errors";
 import { parseOpenApiSpec } from "../../utils/openapi";
 import { kalshiApiSpec } from "./api";
 import { getKalshiConfig, KalshiApiConfig, KALSHI_PATHS } from "./config";
+import { KalshiFetcher } from "./fetcher";
+import { KalshiNormalizer, sortRawEvents } from "./normalizer";
+import { FetcherContext } from "../interfaces";
 
 // Re-export for external use
 export type { KalshiWebSocketConfig };
@@ -59,30 +60,33 @@ export class KalshiExchange extends PredictionMarketExchange {
     fetchOpenOrders: true as const,
     fetchPositions: true as const,
     fetchBalance: true as const,
+    watchAddress: false as const,
+    unwatchAddress: false as const,
     watchOrderBook: true as const,
     watchTrades: true as const,
     fetchMyTrades: true as const,
     fetchClosedOrders: true as const,
     fetchAllOrders: true as const,
+    buildOrder: true as const,
+    submitOrder: true as const,
   };
 
   private auth?: KalshiAuth;
   private wsConfig?: KalshiWebSocketConfig;
   private config: KalshiApiConfig;
+  private readonly fetcher: KalshiFetcher;
+  private readonly normalizer: KalshiNormalizer;
 
   constructor(options?: ExchangeCredentials | KalshiExchangeOptions) {
-    // Support both old signature (credentials only) and new signature (options object)
     let credentials: ExchangeCredentials | undefined;
     let wsConfig: KalshiWebSocketConfig | undefined;
     let demoMode = false;
 
     if (options && "credentials" in options) {
-      // New signature: KalshiExchangeOptions / KalshiInternalOptions
       credentials = options.credentials;
       wsConfig = options.websocket;
       demoMode = (options as KalshiInternalOptions).demoMode || false;
     } else {
-      // Old signature: ExchangeCredentials directly
       credentials = options as ExchangeCredentials | undefined;
     }
 
@@ -100,6 +104,15 @@ export class KalshiExchange extends PredictionMarketExchange {
       this.config.apiUrl + KALSHI_PATHS.TRADE_API,
     );
     this.defineImplicitApi(descriptor);
+
+    const ctx: FetcherContext = {
+      http: this.http,
+      callApi: this.callApi.bind(this),
+      getHeaders: () => ({}),
+    };
+
+    this.fetcher = new KalshiFetcher(ctx);
+    this.normalizer = new KalshiNormalizer();
   }
 
   get name(): string {
@@ -116,18 +129,12 @@ export class KalshiExchange extends PredictionMarketExchange {
     _params: Record<string, any>,
   ): Record<string, string> {
     const auth = this.ensureAuth();
-    // The implicit API passes just the spec path (e.g. /portfolio/balance),
-    // but Kalshi's signature requires the full path including /trade-api/v2.
     return auth.getHeaders(method, "/trade-api/v2" + path);
   }
 
   protected override mapImplicitApiError(error: any): any {
     throw kalshiErrorMapper.mapError(error);
   }
-
-  // ----------------------------------------------------------------------------
-  // Helpers
-  // ----------------------------------------------------------------------------
 
   private ensureAuth(): KalshiAuth {
     if (!this.auth) {
@@ -141,63 +148,78 @@ export class KalshiExchange extends PredictionMarketExchange {
   }
 
   // ----------------------------------------------------------------------------
-  // Market Data Methods - Implementation for CCXT-style API
+  // Market Data  (fetcher -> normalizer)
   // ----------------------------------------------------------------------------
 
   protected async fetchMarketsImpl(
     params?: MarketFilterParams,
   ): Promise<UnifiedMarket[]> {
-    return fetchMarkets(params, this.callApi.bind(this));
+    const rawEvents = await this.fetcher.fetchRawMarkets(params);
+
+    const allMarkets: UnifiedMarket[] = [];
+    for (const event of rawEvents) {
+      const markets = this.normalizer.normalizeMarketsFromEvent(event);
+      allMarkets.push(...markets);
+    }
+
+    // Query-based search (client-side filtering)
+    if (params?.query) {
+      const lowerQuery = params.query.toLowerCase();
+      const searchIn = params?.searchIn || 'title';
+      const filtered = allMarkets.filter((market) => {
+        const titleMatch = (market.title || '').toLowerCase().includes(lowerQuery);
+        const descMatch = (market.description || '').toLowerCase().includes(lowerQuery);
+        if (searchIn === 'title') return titleMatch;
+        if (searchIn === 'description') return descMatch;
+        return titleMatch || descMatch;
+      });
+      return filtered.slice(0, params?.limit || 250000);
+    }
+
+    // Client-side sort
+    if (params?.sort === 'volume') {
+      allMarkets.sort((a, b) => b.volume24h - a.volume24h);
+    } else if (params?.sort === 'liquidity') {
+      allMarkets.sort((a, b) => b.liquidity - a.liquidity);
+    }
+
+    const offset = params?.offset || 0;
+    const limit = params?.limit || 250000;
+    return allMarkets.slice(offset, offset + limit);
   }
 
   protected async fetchEventsImpl(
     params: EventFetchParams,
   ): Promise<UnifiedEvent[]> {
-    return fetchEvents(params, this.callApi.bind(this));
+    const rawEvents = await this.fetcher.fetchRawEvents(params);
+    const limit = params?.limit || 10000;
+    const query = (params?.query || '').toLowerCase();
+
+    const filtered = query
+      ? rawEvents.filter((event) => (event.title || '').toLowerCase().includes(query))
+      : rawEvents;
+
+    const sort = params?.sort || 'volume';
+    const sorted = sortRawEvents(filtered, sort);
+
+    return sorted
+      .map((raw) => this.normalizer.normalizeEvent(raw))
+      .filter((e): e is UnifiedEvent => e !== null)
+      .slice(0, limit);
   }
 
   async fetchOHLCV(
     id: string,
     params: OHLCVParams,
   ): Promise<PriceCandle[]> {
-    return fetchOHLCV(id, params, this.callApi.bind(this));
+    const rawCandles = await this.fetcher.fetchRawOHLCV(id, params);
+    return this.normalizer.normalizeOHLCV(rawCandles, params);
   }
 
   async fetchOrderBook(id: string): Promise<OrderBook> {
     validateIdFormat(id, "OrderBook");
-
-    const isNoOutcome = id.endsWith("-NO");
-    const ticker = id.replace(/-NO$/, "");
-    const data = (await this.callApi("GetMarketOrderbook", { ticker }))
-      .orderbook;
-
-    let bids: any[];
-    let asks: any[];
-
-    if (isNoOutcome) {
-      bids = (data.no || []).map((level: number[]) => ({
-        price: level[0] / 100,
-        size: level[1],
-      }));
-      asks = (data.yes || []).map((level: number[]) => ({
-        price: 1 - level[0] / 100,
-        size: level[1],
-      }));
-    } else {
-      bids = (data.yes || []).map((level: number[]) => ({
-        price: level[0] / 100,
-        size: level[1],
-      }));
-      asks = (data.no || []).map((level: number[]) => ({
-        price: 1 - level[0] / 100,
-        size: level[1],
-      }));
-    }
-
-    bids.sort((a: any, b: any) => b.price - a.price);
-    asks.sort((a: any, b: any) => a.price - b.price);
-
-    return { bids, asks, timestamp: Date.now() };
+    const raw = await this.fetcher.fetchRawOrderBook(id);
+    return this.normalizer.normalizeOrderBook(raw, id);
   }
 
   async fetchTrades(
@@ -210,46 +232,73 @@ export class KalshiExchange extends PredictionMarketExchange {
         "It will be removed in v3.0.0. Please remove it from your code.",
       );
     }
-    const ticker = id.replace(/-NO$/, "");
-    const data = await this.callApi("GetTrades", {
-      ticker,
-      limit: params.limit || 100,
-    });
-    const trades = data.trades || [];
-    return trades.map((t: any) => ({
-      id: t.trade_id,
-      timestamp: new Date(t.created_time).getTime(),
-      price: t.yes_price / 100,
-      amount: t.count,
-      side: t.taker_side === "yes" ? "buy" : "sell",
-    }));
+    const rawTrades = await this.fetcher.fetchRawTrades(id, params);
+    return rawTrades.map((raw, i) => this.normalizer.normalizeTrade(raw, i));
   }
 
   // ----------------------------------------------------------------------------
-  // User Data Methods
+  // User Data  (fetcher -> normalizer)
   // ----------------------------------------------------------------------------
 
   async fetchBalance(): Promise<Balance[]> {
-    const data = await this.callApi("GetBalance");
-    const available = data.balance / 100;
-    const total = data.portfolio_value / 100;
-    return [
-      {
-        currency: "USD",
-        total,
-        available,
-        locked: total - available,
-      },
-    ];
+    const raw = await this.fetcher.fetchRawBalance();
+    return this.normalizer.normalizeBalance(raw);
+  }
+
+  async fetchMyTrades(params?: MyTradesParams): Promise<UserTrade[]> {
+    const rawFills = await this.fetcher.fetchRawMyTrades(params || {});
+    return rawFills.map((raw, i) => this.normalizer.normalizeUserTrade(raw, i));
+  }
+
+  async fetchPositions(): Promise<Position[]> {
+    const rawPositions = await this.fetcher.fetchRawPositions();
+    return rawPositions.map((raw) => this.normalizer.normalizePosition(raw));
+  }
+
+  async fetchClosedOrders(params?: OrderHistoryParams): Promise<Order[]> {
+    const queryParams: Record<string, any> = {};
+    if (params?.marketId) queryParams.ticker = params.marketId;
+    if (params?.until) queryParams.max_ts = Math.floor(params.until.getTime() / 1000);
+    if (params?.limit) queryParams.limit = params.limit;
+    if (params?.cursor) queryParams.cursor = params.cursor;
+
+    const rawOrders = await this.fetcher.fetchRawHistoricalOrders(queryParams);
+    return rawOrders.map((o) => this.normalizer.normalizeOrder(o));
+  }
+
+  async fetchAllOrders(params?: OrderHistoryParams): Promise<Order[]> {
+    const queryParams: Record<string, any> = {};
+    if (params?.marketId) queryParams.ticker = params.marketId;
+    if (params?.since) queryParams.min_ts = Math.floor(params.since.getTime() / 1000);
+    if (params?.until) queryParams.max_ts = Math.floor(params.until.getTime() / 1000);
+    if (params?.limit) queryParams.limit = params.limit;
+
+    const historicalParams = { ...queryParams };
+    delete historicalParams.min_ts;
+
+    const [liveOrders, historicalOrders] = await Promise.all([
+      this.fetcher.fetchRawOrders(queryParams),
+      this.fetcher.fetchRawHistoricalOrders(historicalParams),
+    ]);
+
+    const seen = new Set<string>();
+    const all: Order[] = [];
+    for (const o of [...liveOrders, ...historicalOrders]) {
+      if (!seen.has(o.order_id)) {
+        seen.add(o.order_id);
+        all.push(this.normalizer.normalizeOrder(o));
+      }
+    }
+    return all.sort((a, b) => b.timestamp - a.timestamp);
   }
 
   // ----------------------------------------------------------------------------
-  // Trading Methods
+  // Trading
   // ----------------------------------------------------------------------------
 
-  async createOrder(params: CreateOrderParams): Promise<Order> {
+  async buildOrder(params: CreateOrderParams): Promise<BuiltOrder> {
     const isYesSide = params.side === "buy";
-    const kalshiOrder: Record<string, any> = {
+    const body: Record<string, any> = {
       ticker: params.marketId,
       client_order_id: `pmxt-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       side: isYesSide ? "yes" : "no",
@@ -261,22 +310,28 @@ export class KalshiExchange extends PredictionMarketExchange {
     if (params.price) {
       const priceInCents = Math.round(params.price * 100);
       if (isYesSide) {
-        kalshiOrder.yes_price = priceInCents;
+        body.yes_price = priceInCents;
       } else {
-        kalshiOrder.no_price = priceInCents;
+        body.no_price = priceInCents;
       }
     }
 
-    const data = await this.callApi("CreateOrder", kalshiOrder);
-    const order = data.order;
+    return { exchange: this.name, params, raw: body };
+  }
 
-    return this.mapKalshiOrder(order);
+  async submitOrder(built: BuiltOrder): Promise<Order> {
+    const data = await this.callApi("CreateOrder", built.raw as Record<string, any>);
+    return this.normalizer.normalizeOrder(data.order);
+  }
+
+  async createOrder(params: CreateOrderParams): Promise<Order> {
+    const built = await this.buildOrder(params);
+    return this.submitOrder(built);
   }
 
   async cancelOrder(orderId: string): Promise<Order> {
     const data = await this.callApi("CancelOrder", { order_id: orderId });
     const order = data.order;
-
     return {
       id: order.order_id,
       marketId: order.ticker,
@@ -293,184 +348,49 @@ export class KalshiExchange extends PredictionMarketExchange {
 
   async fetchOrder(orderId: string): Promise<Order> {
     const data = await this.callApi("GetOrder", { order_id: orderId });
-    return this.mapKalshiOrder(data.order);
+    return this.normalizer.normalizeOrder(data.order);
   }
 
   async fetchOpenOrders(marketId?: string): Promise<Order[]> {
     const queryParams: Record<string, any> = { status: "resting" };
-    if (marketId) {
-      queryParams.ticker = marketId;
-    }
-
-    const data = await this.callApi("GetOrders", queryParams);
-    const orders = data.orders || [];
-    return orders.map((order: any) => this.mapKalshiOrder(order));
-  }
-
-  async fetchMyTrades(params?: MyTradesParams): Promise<UserTrade[]> {
-    const queryParams: Record<string, any> = {};
-    if (params?.outcomeId || params?.marketId) {
-      queryParams.ticker = (params.outcomeId || params.marketId)!.replace(
-        /-NO$/,
-        "",
-      );
-    }
-    if (params?.since)
-      queryParams.min_ts = Math.floor(params.since.getTime() / 1000);
-    if (params?.until)
-      queryParams.max_ts = Math.floor(params.until.getTime() / 1000);
-    if (params?.limit) queryParams.limit = params.limit;
-    if (params?.cursor) queryParams.cursor = params.cursor;
-
-    const data = await this.callApi("GetFills", queryParams);
-    return (data.fills || []).map((f: any) => ({
-      id: f.fill_id,
-      timestamp: new Date(f.created_time).getTime(),
-      price: f.yes_price / 100,
-      amount: f.count,
-      side: f.side === "yes" ? ("buy" as const) : ("sell" as const),
-      orderId: f.order_id,
-    }));
-  }
-
-  async fetchClosedOrders(params?: OrderHistoryParams): Promise<Order[]> {
-    const queryParams: Record<string, any> = {};
-    if (params?.marketId) queryParams.ticker = params.marketId;
-    if (params?.until)
-      queryParams.max_ts = Math.floor(params.until.getTime() / 1000);
-    if (params?.limit) queryParams.limit = params.limit;
-    if (params?.cursor) queryParams.cursor = params.cursor;
-
-    const data = await this.callApi("GetHistoricalOrders", queryParams);
-    return (data.orders || []).map((o: any) => this.mapKalshiOrder(o));
-  }
-
-  async fetchAllOrders(params?: OrderHistoryParams): Promise<Order[]> {
-    const queryParams: Record<string, any> = {};
-    if (params?.marketId) queryParams.ticker = params.marketId;
-    if (params?.since)
-      queryParams.min_ts = Math.floor(params.since.getTime() / 1000);
-    if (params?.until)
-      queryParams.max_ts = Math.floor(params.until.getTime() / 1000);
-    if (params?.limit) queryParams.limit = params.limit;
-
-    const historicalParams = { ...queryParams };
-    delete historicalParams.min_ts; // GetHistoricalOrders only supports max_ts
-
-    const [liveData, historicalData] = await Promise.all([
-      this.callApi("GetOrders", queryParams),
-      this.callApi("GetHistoricalOrders", historicalParams),
-    ]);
-
-    const seen = new Set<string>();
-    const all: Order[] = [];
-    for (const o of [
-      ...(liveData.orders || []),
-      ...(historicalData.orders || []),
-    ]) {
-      if (!seen.has(o.order_id)) {
-        seen.add(o.order_id);
-        all.push(this.mapKalshiOrder(o));
-      }
-    }
-    return all.sort((a, b) => b.timestamp - a.timestamp);
-  }
-
-  async fetchPositions(): Promise<Position[]> {
-    const data = await this.callApi("GetPositions");
-    const positions = data.market_positions || [];
-
-    return positions.map((pos: any) => {
-      const absPosition = Math.abs(pos.position);
-      const entryPrice =
-        absPosition > 0 ? pos.total_cost / absPosition / 100 : 0;
-
-      return {
-        marketId: pos.ticker,
-        outcomeId: pos.ticker,
-        outcomeLabel: pos.ticker,
-        size: pos.position,
-        entryPrice,
-        currentPrice: pos.market_price ? pos.market_price / 100 : entryPrice,
-        unrealizedPnL: pos.market_exposure ? pos.market_exposure / 100 : 0,
-        realizedPnL: pos.realized_pnl ? pos.realized_pnl / 100 : 0,
-      };
-    });
-  }
-
-  // Helper to map a raw Kalshi order object to a unified Order
-  private mapKalshiOrder(order: any): Order {
-    return {
-      id: order.order_id,
-      marketId: order.ticker,
-      outcomeId: order.ticker,
-      side: order.side === "yes" ? "buy" : "sell",
-      type: order.type === "limit" ? "limit" : "market",
-      price: order.yes_price ? order.yes_price / 100 : undefined,
-      amount: order.count,
-      status: this.mapKalshiOrderStatus(order.status),
-      filled: order.count - (order.remaining_count || 0),
-      remaining: order.remaining_count || 0,
-      timestamp: new Date(order.created_time).getTime(),
-    };
-  }
-
-  // Helper to map Kalshi order status to unified status
-  private mapKalshiOrderStatus(
-    status: string | undefined,
-  ): "pending" | "open" | "filled" | "cancelled" | "rejected" {
-    switch ((status ?? "").toLowerCase()) {
-      case "resting":
-        return "open";
-      case "canceled":
-      case "cancelled":
-        return "cancelled";
-      case "executed":
-      case "filled":
-        return "filled";
-      default:
-        return "open";
-    }
+    if (marketId) queryParams.ticker = marketId;
+    const rawOrders = await this.fetcher.fetchRawOrders(queryParams);
+    return rawOrders.map((o) => this.normalizer.normalizeOrder(o));
   }
 
   // ----------------------------------------------------------------------------
-  // WebSocket Methods
+  // WebSocket
   // ----------------------------------------------------------------------------
 
   private ws?: KalshiWebSocket;
 
   async watchOrderBook(id: string, limit?: number): Promise<OrderBook> {
     const auth = this.ensureAuth();
-
     if (!this.ws) {
-      // Merge wsConfig with wsUrl from config
       const wsConfigWithUrl: KalshiWebSocketConfig = {
         ...this.wsConfig,
         wsUrl: this.wsConfig?.wsUrl || this.config.wsUrl,
       };
       this.ws = new KalshiWebSocket(auth, wsConfigWithUrl);
     }
-    // Normalize ticker (strip -NO suffix if present)
     const marketTicker = id.replace(/-NO$/, "");
     return this.ws.watchOrderBook(marketTicker);
   }
 
   async watchTrades(
     id: string,
+    address?: string,
     since?: number,
     limit?: number,
   ): Promise<Trade[]> {
     const auth = this.ensureAuth();
-
     if (!this.ws) {
-      // Merge wsConfig with wsUrl from config
       const wsConfigWithUrl: KalshiWebSocketConfig = {
         ...this.wsConfig,
         wsUrl: this.wsConfig?.wsUrl || this.config.wsUrl,
       };
       this.ws = new KalshiWebSocket(auth, wsConfigWithUrl);
     }
-    // Normalize ticker (strip -NO suffix if present)
     const marketTicker = id.replace(/-NO$/, "");
     return this.ws.watchTrades(marketTicker);
   }

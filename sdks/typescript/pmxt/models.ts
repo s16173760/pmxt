@@ -1,6 +1,6 @@
 /**
  * Data models for PMXT TypeScript SDK.
- * 
+ *
  * These are clean TypeScript interfaces that provide a user-friendly API.
  */
 
@@ -368,6 +368,29 @@ export interface CreateOrderParams {
     /** Optional fee rate (e.g., 1000 for 0.1%) */
     fee?: number;
 }
+
+/**
+ * An order payload built but not yet submitted to the exchange.
+ */
+export interface BuiltOrder {
+    /** The exchange name this order was built for. */
+    exchange: string;
+    /** The original params used to build this order. */
+    params: CreateOrderParams;
+    /** For CLOB exchanges (Polymarket): the EIP-712 signed order. */
+    signedOrder?: Record<string, unknown>;
+    /** For on-chain AMM exchanges: the EVM transaction payload. */
+    tx?: {
+        to: string;
+        data: string;
+        value: string;
+        chainId: number;
+    };
+    /** The raw, exchange-native payload. Always present. */
+    raw: unknown;
+}
+
+
 /**
  * A list of UnifiedMarket objects with a convenience match() method.
  * Extends Array so all standard array operations work unchanged.
@@ -545,3 +568,34 @@ export interface EventFilterCriteria {
  * Function type for custom event filtering logic.
  */
 export type EventFilterFunction = (event: UnifiedEvent) => boolean;
+
+/**
+ * Subscription options.
+ */
+export type SubscriptionOption = 'trades' | 'positions' | 'balances';
+
+/**
+ * Subscription snapshot of a watched public wallet address.
+ */
+export interface SubscribedAddressSnapshot {
+    /** The wallet address being watched */
+    address: string;
+
+    /** Recent trades for this address
+     * (if the above SubscriptionOption 'trades' option was requested)
+     */
+    trades?: Trade[];
+
+    /** Current open positions for this address
+     * (if the above SubscriptionOption 'positions' option was requested)
+     */
+    positions?: Position[];
+
+    /** Current balances for this address
+     * (if the above SubscriptionOption 'balances' option was requested)
+     */
+    balances?: Balance[];
+
+    /** Unix timestamp (ms) of this snapshot */
+    timestamp: number;
+}

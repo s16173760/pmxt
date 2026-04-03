@@ -53,6 +53,12 @@ const SPECS = [
         outFile: path.resolve(__dirname, '../src/exchanges/myriad/api.ts'),
         exportName: 'myriadApiSpec',
     },
+    {
+        name: 'opinion',
+        localFile: path.resolve(__dirname, '../specs/opinion/opinion-openapi.yaml'),
+        outFile: path.resolve(__dirname, '../src/exchanges/opinion/api.ts'),
+        exportName: 'opinionApiSpec',
+    },
 ];
 
 function fetch(url) {

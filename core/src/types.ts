@@ -1,4 +1,3 @@
-
 // ----------------------------------------------------------------------------
 // Core Data Models
 // ----------------------------------------------------------------------------
@@ -88,10 +87,17 @@ export interface Trade {
     price: number;
     amount: number;
     side: 'buy' | 'sell' | 'unknown';
+    outcomeId?: string;
 }
 
 export interface UserTrade extends Trade {
     orderId?: string;
+}
+
+
+export interface QueuedPromise<T> {
+    resolve: (value: T | PromiseLike<T>) => void;
+    reject: (reason?: any) => void;
 }
 
 // ----------------------------------------------------------------------------
@@ -141,4 +147,28 @@ export interface CreateOrderParams {
     fee?: number;   // Optional fee rate (e.g., 1000 for 0.1%)
     tickSize?: number; // Optional override for Limitless/Polymarket
     negRisk?: boolean; // Optional override to skip neg-risk lookup (Polymarket)
+}
+
+export interface BuiltOrder {
+    /** The exchange name this order was built for. */
+    exchange: string;
+    /** The original params used to build this order. */
+    params: CreateOrderParams;
+    /**
+     * For CLOB exchanges (Polymarket): the EIP-712 signed order
+     * ready to POST to the exchange's order endpoint.
+     */
+    signedOrder?: Record<string, unknown>;
+    /**
+     * For on-chain AMM exchanges: the EVM transaction payload.
+     * Reserved for future exchanges; no current exchange populates this.
+     */
+    tx?: {
+        to: string;
+        data: string;
+        value: string;
+        chainId: number;
+    };
+    /** The raw, exchange-native payload. Always present. */
+    raw: unknown;
 }

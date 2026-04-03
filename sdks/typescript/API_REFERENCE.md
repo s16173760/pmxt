@@ -55,9 +55,34 @@ await pmxt.restartServer();
 
 ## Methods
 
-### `loadMarkets`
+### `implicitApi`
 
 How long (ms) a market snapshot created by `fetchMarketsPaginated` remains valid
+
+
+**Signature:**
+
+```typescript
+async implicitApi(): Promise<ImplicitApiMethodInfo[]>
+```
+
+**Parameters:**
+
+- None
+
+**Returns:** Promise<ImplicitApiMethodInfo[]> - Result
+
+**Example:**
+
+```typescript
+// No example available
+```
+
+
+---
+### `loadMarkets`
+
+Load and cache all markets from the exchange into `this.markets` and `this.marketsBySlug`.
 
 
 **Signature:**
@@ -165,7 +190,7 @@ async fetchEvents(params?: EventFetchParams): Promise<UnifiedEvent[]>
 **Parameters:**
 
 - `params` ([EventFetchParams](#eventfetchparams)) - **Optional**: Optional parameters for search and filtering
-  - `params.query` - Search keyword to filter events (required)
+  - `params.query` - Search keyword to filter events. If omitted, returns top events by volume.
   - `params.limit` - Maximum number of results
   - `params.offset` - Pagination offset
   - `params.searchIn` - Where to search ('title' | 'description' | 'both')
@@ -248,13 +273,13 @@ Fetch historical OHLCV (candlestick) price data for a specific market outcome.
 **Signature:**
 
 ```typescript
-async fetchOHLCV(id: string, params: OHLCVParams | HistoryFilterParams): Promise<PriceCandle[]>
+async fetchOHLCV(id: string, params: OHLCVParams): Promise<PriceCandle[]>
 ```
 
 **Parameters:**
 
 - `id` (string): The Outcome ID (outcomeId). Use outcome.outcomeId, NOT market.marketId
-- `params` (OHLCVParams | HistoryFilterParams): OHLCV parameters including resolution (required)
+- `params` ([OHLCVParams](#ohlcvparams)): OHLCV parameters including resolution (required)
 
 **Returns:** Promise<[PriceCandle](#pricecandle)[]> - Array of price candles
 
@@ -381,6 +406,69 @@ const order = await exchange.createOrder({
 
 
 ---
+### `buildOrder`
+
+Build an order payload without submitting it to the exchange.
+
+
+**Signature:**
+
+```typescript
+async buildOrder(params: CreateOrderParams): Promise<BuiltOrder>
+```
+
+**Parameters:**
+
+- `params` ([CreateOrderParams](#createorderparams)): Order parameters (same as createOrder)
+
+**Returns:** Promise<[BuiltOrder](#builtorder)> - A BuiltOrder containing the exchange-native payload
+
+**Example:**
+
+```typescript
+// Build then inspect a Polymarket order
+const built = await exchange.buildOrder({
+  marketId: market.marketId,
+  outcomeId: market.yes.outcomeId,
+  side: 'buy',
+  type: 'limit',
+  amount: 10,
+  price: 0.55
+});
+console.log(built.signedOrder); // EIP-712 signed order struct
+const order = await exchange.submitOrder(built);
+```
+
+
+---
+### `submitOrder`
+
+Submit a pre-built order returned by buildOrder().
+
+
+**Signature:**
+
+```typescript
+async submitOrder(built: BuiltOrder): Promise<Order>
+```
+
+**Parameters:**
+
+- `built` ([BuiltOrder](#builtorder)): A BuiltOrder from buildOrder()
+
+**Returns:** Promise<[Order](#order)> - The submitted order
+
+**Example:**
+
+```typescript
+// Submit a pre-built order
+const built = await exchange.buildOrder(params);
+const order = await exchange.submitOrder(built);
+console.log(`Order ${order.id}: ${order.status}`);
+```
+
+
+---
 ### `cancelOrder`
 
 Cancel an existing open order.
@@ -475,12 +563,12 @@ Fetch current user positions across all markets.
 **Signature:**
 
 ```typescript
-async fetchPositions(): Promise<Position[]>
+async fetchPositions(address?: string): Promise<Position[]>
 ```
 
 **Parameters:**
 
-- None
+- `address` (string) - **Optional**: Optional public wallet address
 
 **Returns:** Promise<[Position](#position)[]> - Array of user positions
 
@@ -505,12 +593,12 @@ Fetch account balances.
 **Signature:**
 
 ```typescript
-async fetchBalance(): Promise<Balance[]>
+async fetchBalance(address?: string): Promise<Balance[]>
 ```
 
 **Parameters:**
 
-- None
+- `address` (string) - **Optional**: Optional public wallet address
 
 **Returns:** Promise<[Balance](#balance)[]> - Array of account balances
 
@@ -693,12 +781,13 @@ Watch trade executions in real-time via WebSocket.
 **Signature:**
 
 ```typescript
-async watchTrades(id: string, since?: number, limit?: number): Promise<Trade[]>
+async watchTrades(id: string, address?: string, since?: number, limit?: number): Promise<Trade[]>
 ```
 
 **Parameters:**
 
 - `id` (string): The Outcome ID to watch
+- `address` (string) - **Optional**: Public wallet address
 - `since` (number) - **Optional**: Optional timestamp to filter trades from
 - `limit` (number) - **Optional**: Optional limit for number of trades
 
@@ -714,6 +803,62 @@ while (true) {
     console.log(`${trade.side} ${trade.amount} @ ${trade.price}`);
   }
 }
+```
+
+
+---
+### `watchAddress`
+
+Stream activity for a public wallet address
+
+
+**Signature:**
+
+```typescript
+async watchAddress(address: string, types?: SubscriptionOption[]): Promise<SubscribedAddressSnapshot>
+```
+
+**Parameters:**
+
+- `address` (string): Public wallet address to watch
+- `types` (SubscriptionOption[]) - **Optional**: Subset of activity to watch (default: all types)
+
+**Returns:** Promise<SubscribedAddressSnapshot> - Promise that resolves with the latest SubscribedAddressSnapshot snapshot
+
+**Example:**
+
+```typescript
+// Stream wallet activity
+while (true) {
+  const activity = await exchange.watchAddress('0xabc...', ['trades', 'positions']);
+  console.log(activity.trades, activity.positions);
+}
+```
+
+
+---
+### `unwatchAddress`
+
+Stop watching a previously registered wallet address and release its resource updates.
+
+
+**Signature:**
+
+```typescript
+async unwatchAddress(address: string): Promise<void>
+```
+
+**Parameters:**
+
+- `address` (string): Public wallet address to stop watching
+
+**Returns:** Promise<void> - Result
+
+**Example:**
+
+```typescript
+// Stop watching
+await exchange.unwatchAddress('0xabc...');
 ```
 
 
@@ -740,31 +885,6 @@ async close(): Promise<void>
 ```typescript
 // Close connections
 await exchange.close();
-```
-
-
----
-### `implicitApi`
-
-Introspection getter: returns info about all implicit API methods.
-
-
-**Signature:**
-
-```typescript
-async implicitApi(): Promise<ImplicitApiMethodInfo[]>
-```
-
-**Parameters:**
-
-- None
-
-**Returns:** Promise<ImplicitApiMethodInfo[]> - Result
-
-**Example:**
-
-```typescript
-// No example available
 ```
 
 
@@ -1248,6 +1368,21 @@ interface PaginatedMarketsResult {
 data: UnifiedMarket[]; // 
 total: number; // 
 nextCursor: string; // 
+}
+```
+
+---
+### `BuiltOrder`
+
+An order built but not yet submitted, ready for inspection or middleware forwarding
+
+```typescript
+interface BuiltOrder {
+exchange: string; // The exchange name this order was built for
+params: CreateOrderParams; // 
+signedOrder: object; // For CLOB exchanges (Polymarket): the EIP-712 signed order ready to POST
+tx: object; // For on-chain AMM exchanges: the EVM transaction payload (reserved for future use)
+raw: any; // The raw, exchange-native payload. Always present.
 }
 ```
 

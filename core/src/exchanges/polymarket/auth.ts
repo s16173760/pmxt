@@ -82,7 +82,6 @@ export class PolymarketAuth {
             console.log('[PolymarketAuth] Attempting to create new API key...');
             try {
                 creds = await l1Client.createApiKey();
-                console.log('[PolymarketAuth] createApiKey returned:', JSON.stringify(creds, null, 2));
             } catch (createError: any) {
                 throw polymarketErrorMapper.mapError(createError);
             }

@@ -19,6 +19,8 @@ PUBLIC_METHODS = [
     "fetch_order_book",
     "fetch_trades",
     "create_order",
+    "build_order",
+    "submit_order",
     "cancel_order",
     "fetch_order",
     "fetch_open_orders",

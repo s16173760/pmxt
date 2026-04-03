@@ -1,4 +1,5 @@
-# pmxt [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=The%20ccxt%20for%20prediction%20markets.&url=https://github.com/pmxt-dev/pmxt&hashtags=predictionmarkets,trading)
+# pmxt [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=The%20ccxt%20for%20prediction%20markets.&url=https://github.com/pmxt-dev/pmxt&hashtags=predictionmarkets,trading)  [![DOI](https://zenodo.org/badge/1130657894.svg)](https://doi.org/10.5281/zenodo.19111315)
+
 
 **The [ccxt](https://github.com/ccxt/ccxt) for prediction markets.** A unified API for accessing prediction market data across multiple exchanges.
 
@@ -15,7 +16,7 @@
 <img src="https://img.shields.io/github/watchers/pmxt-dev/pmxt?style=social" alt="GitHub watchers">
 </td>
 <td>
-<a href="https://github.com/qoery-com/pmxt"><img src="https://img.shields.io/badge/downloads-53.4k-blue" alt="Total Downloads"></a>
+<a href="https://github.com/pmxt-dev/pmxt"><img src="https://pmxt-dev.github.io/pmxt-stats/badges/total-downloads.svg" alt="Total Downloads"></a>
 </td>
 </tr>
 <tr>
@@ -40,19 +41,6 @@
 </div>
 
 <p align="center">
-<img src="https://polymarket.com/favicon.ico" alt="Polymarket" width="40" height="40">
-&nbsp;&nbsp;&nbsp;&nbsp;
-<img src="https://kalshi.com/favicon.ico" alt="Kalshi" width="40" height="40">
-&nbsp;&nbsp;&nbsp;&nbsp;
-<img src="https://manifold.markets/logo.svg" alt="Manifold Markets" width="40" height="40">
-&nbsp;&nbsp;&nbsp;&nbsp;
-<img src="https://metaculus.com/favicon.ico" alt="Metaculus" width="40" height="40">
-&nbsp;&nbsp;&nbsp;&nbsp;
-<img src="https://predictit.org/favicon.ico" alt="PredictIt" width="40" height="40">
-</p>
-<p align="center">
-
-<p align="center">
   <a href="https://discord.gg/Pyn252Pg95">
     <img src="https://img.shields.io/discord/1461393765196501015?label=Discord&logo=discord&logoColor=white&style=for-the-badge&color=5865F2" alt="Discord">
   </a>
@@ -73,10 +61,10 @@ Different prediction market platforms have different APIs, data formats, and con
   &nbsp;&nbsp;&nbsp;&nbsp;
   <a href="https://probable.markets" style="color: inherit; text-decoration: none;"><img src="https://developer.probable.markets/logo.svg" alt="Probable" width="100"></a>
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://baozi.bet" style="color: inherit; text-decoration: none;"><img src="https://baozi.bet/favicon.ico" alt="Baozi" width="24" height="24"> <b>Baozi</b></a>
-  &nbsp;&nbsp;&nbsp;&nbsp;
   <!-- # The baozi website seems to just show 50:50 odds for everything. Something must be fundamentally broken on their end. -->
   <a href="https://myriad.markets" style="color: inherit; text-decoration: none;"><img src="https://myriad.markets/favicon.ico" alt="Myriad" width="24" height="24"> <b>Myriad</b></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://opinion.trade" style="color: inherit; text-decoration: none;"><img src="https://app.opinion.trade/assets/apple-splash-2048-2732.jpg" alt="Opinion" width="24" height="24"> <b>Opinion</b></a>
 </p>
 
 [Feature Support & Compliance](core/COMPLIANCE.md).

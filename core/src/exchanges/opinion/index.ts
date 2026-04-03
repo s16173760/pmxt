@@ -1,0 +1,492 @@
+import {
+    PredictionMarketExchange,
+    MarketFilterParams,
+    OHLCVParams,
+    ExchangeCredentials,
+    EventFetchParams,
+    MyTradesParams,
+    OrderHistoryParams,
+} from '../../BaseExchange';
+import {
+    UnifiedMarket,
+    UnifiedEvent,
+    PriceCandle,
+    OrderBook,
+    Trade,
+    Order,
+    Position,
+    UserTrade,
+    CreateOrderParams,
+    BuiltOrder,
+} from '../../types';
+// The @opinion-labs/opinion-clob-sdk is ESM-only. We use dynamic import()
+// to avoid breaking CJS consumers at require-time.
+type OpinionSdk = typeof import('@opinion-labs/opinion-clob-sdk');
+
+let sdkPromise: Promise<OpinionSdk> | undefined;
+
+function loadSdk(): Promise<OpinionSdk> {
+    if (!sdkPromise) {
+        sdkPromise = import('@opinion-labs/opinion-clob-sdk');
+    }
+    return sdkPromise;
+}
+import { OpinionAuth } from './auth';
+import { OpinionWebSocket, OpinionWebSocketConfig } from './websocket';
+import { opinionErrorMapper } from './errors';
+import { AuthenticationError } from '../../errors';
+import { parseOpenApiSpec } from '../../utils/openapi';
+import { opinionApiSpec } from './api';
+import { OPINION_API_URL } from './config';
+import { OpinionFetcher } from './fetcher';
+import { OpinionNormalizer } from './normalizer';
+import { FetcherContext } from '../interfaces';
+
+// Re-export for external use
+export type { OpinionWebSocketConfig };
+
+export interface OpinionExchangeOptions {
+    credentials?: ExchangeCredentials;
+    walletAddress?: string;
+    websocket?: OpinionWebSocketConfig;
+}
+
+export class OpinionExchange extends PredictionMarketExchange {
+    override readonly has = {
+        fetchMarkets: true as const,
+        fetchEvents: true as const,
+        fetchOHLCV: true as const,
+        fetchOrderBook: true as const,
+        fetchTrades: false as const,
+        createOrder: true as const,
+        cancelOrder: true as const,
+        fetchOrder: true as const,
+        fetchOpenOrders: true as const,
+        fetchPositions: true as const,
+        fetchBalance: false as const,
+        watchAddress: false as const,
+        unwatchAddress: false as const,
+        watchOrderBook: true as const,
+        watchTrades: true as const,
+        fetchMyTrades: true as const,
+        fetchClosedOrders: true as const,
+        fetchAllOrders: true as const,
+        buildOrder: true as const,
+        submitOrder: true as const,
+    };
+
+    private auth?: OpinionAuth;
+    private readonly walletAddress?: string;
+    private wsConfig?: OpinionWebSocketConfig;
+    private readonly fetcher: OpinionFetcher;
+    private readonly normalizer: OpinionNormalizer;
+    private ws?: OpinionWebSocket;
+
+    // Maps outcomeId (token ID) → numeric marketId for WebSocket subscriptions
+    private readonly outcomeToMarketId = new Map<string, number>();
+
+    constructor(options?: ExchangeCredentials | OpinionExchangeOptions) {
+        let credentials: ExchangeCredentials | undefined;
+        let walletAddress: string | undefined;
+        let wsConfig: OpinionWebSocketConfig | undefined;
+
+        if (options && 'credentials' in options) {
+            credentials = options.credentials;
+            walletAddress = options.walletAddress;
+            wsConfig = options.websocket;
+        } else {
+            credentials = options as ExchangeCredentials | undefined;
+        }
+
+        super(credentials);
+        this.rateLimit = 100;
+        this.walletAddress = walletAddress;
+        this.wsConfig = wsConfig;
+
+        if (credentials?.apiKey) {
+            this.auth = new OpinionAuth(credentials);
+        }
+
+        const descriptor = parseOpenApiSpec(opinionApiSpec, OPINION_API_URL);
+        this.defineImplicitApi(descriptor);
+
+        const ctx: FetcherContext = {
+            http: this.http,
+            callApi: this.callApi.bind(this),
+            getHeaders: () => this.auth?.getHeaders() ?? {},
+        };
+
+        this.fetcher = new OpinionFetcher(ctx);
+        this.normalizer = new OpinionNormalizer();
+    }
+
+    get name(): string {
+        return 'Opinion';
+    }
+
+    // -------------------------------------------------------------------------
+    // Implicit API Auth & Error Mapping
+    // -------------------------------------------------------------------------
+
+    protected override sign(
+        _method: string,
+        _path: string,
+        _params: Record<string, any>,
+    ): Record<string, string> {
+        if (!this.auth) {
+            throw new AuthenticationError(
+                'This operation requires authentication. ' +
+                'Initialize OpinionExchange with credentials (apiKey).',
+                'Opinion',
+            );
+        }
+        return this.auth.getHeaders();
+    }
+
+    protected override mapImplicitApiError(error: any): any {
+        throw opinionErrorMapper.mapError(error);
+    }
+
+    // -------------------------------------------------------------------------
+    // Market Data (fetcher -> normalizer)
+    // -------------------------------------------------------------------------
+
+    protected async fetchMarketsImpl(
+        params?: MarketFilterParams,
+    ): Promise<UnifiedMarket[]> {
+        const rawMarkets = await this.fetcher.fetchRawMarkets(params);
+
+        const allMarkets: UnifiedMarket[] = [];
+        for (const raw of rawMarkets) {
+            const markets = this.normalizer.normalizeMarketsFromEvent(raw);
+            for (const market of markets) {
+                for (const outcome of market.outcomes) {
+                    if (outcome.outcomeId) {
+                        this.outcomeToMarketId.set(
+                            outcome.outcomeId,
+                            Number(market.marketId),
+                        );
+                    }
+                }
+            }
+            allMarkets.push(...markets);
+        }
+
+        if (params?.query) {
+            const lowerQuery = params.query.toLowerCase();
+            const searchIn = params.searchIn || 'title';
+            const filtered = allMarkets.filter((market) => {
+                const titleMatch = (market.title || '').toLowerCase().includes(lowerQuery);
+                const descMatch = (market.description || '').toLowerCase().includes(lowerQuery);
+                if (searchIn === 'title') return titleMatch;
+                if (searchIn === 'description') return descMatch;
+                return titleMatch || descMatch;
+            });
+            return filtered.slice(0, params.limit || 250000);
+        }
+
+        if (params?.sort === 'volume') {
+            allMarkets.sort((a, b) => b.volume24h - a.volume24h);
+        } else if (params?.sort === 'liquidity') {
+            allMarkets.sort((a, b) => b.liquidity - a.liquidity);
+        }
+
+        const offset = params?.offset || 0;
+        const limit = params?.limit || 250000;
+        return allMarkets.slice(offset, offset + limit);
+    }
+
+    protected async fetchEventsImpl(
+        params: EventFetchParams,
+    ): Promise<UnifiedEvent[]> {
+        const rawEvents = await this.fetcher.fetchRawEvents(params);
+        const limit = params.limit || 10000;
+        const query = (params.query || '').toLowerCase();
+
+        const filtered = query
+            ? rawEvents.filter((raw) => (raw.marketTitle || '').toLowerCase().includes(query))
+            : rawEvents;
+
+        return filtered
+            .map((raw) => this.normalizer.normalizeEvent(raw))
+            .filter((e): e is UnifiedEvent => e !== null)
+            .slice(0, limit);
+    }
+
+    async fetchOHLCV(
+        id: string,
+        params: OHLCVParams,
+    ): Promise<PriceCandle[]> {
+        const rawPoints = await this.fetcher.fetchRawOHLCV(id, params);
+        return this.normalizer.normalizeOHLCV({ history: rawPoints }, params);
+    }
+
+    async fetchOrderBook(id: string): Promise<OrderBook> {
+        const raw = await this.fetcher.fetchRawOrderBook(id);
+        return this.normalizer.normalizeOrderBook(raw, id);
+    }
+
+    // -------------------------------------------------------------------------
+    // User Data (fetcher -> normalizer)
+    // -------------------------------------------------------------------------
+
+    async fetchMyTrades(params?: MyTradesParams): Promise<UserTrade[]> {
+        const wallet = this.requireWalletAddress();
+        const rawTrades = await this.fetcher.fetchRawMyTrades(params || {}, wallet);
+        return rawTrades.map((raw, i) => this.normalizer.normalizeUserTrade(raw, i));
+    }
+
+    async fetchPositions(): Promise<Position[]> {
+        const wallet = this.requireWalletAddress();
+        const rawPositions = await this.fetcher.fetchRawPositions(wallet);
+        return rawPositions.map((raw) => this.normalizer.normalizePosition(raw));
+    }
+
+    async fetchOrder(orderId: string): Promise<Order> {
+        const raw = await this.fetcher.fetchRawOrderById(orderId);
+        if (!raw) {
+            throw new Error(`Order not found: ${orderId}`);
+        }
+        return this.normalizer.normalizeOrder(raw);
+    }
+
+    async fetchOpenOrders(marketId?: string): Promise<Order[]> {
+        const queryParams: { marketId?: number; status: string } = { status: '1' };
+        if (marketId) {
+            queryParams.marketId = Number(marketId);
+        }
+        const rawOrders = await this.fetcher.fetchRawOrders(queryParams);
+        return rawOrders.map((o) => this.normalizer.normalizeOrder(o));
+    }
+
+    async fetchClosedOrders(params?: OrderHistoryParams): Promise<Order[]> {
+        const queryParams: { marketId?: number; status: string; limit?: number } = {
+            status: '2,3,4,5',
+        };
+        if (params?.marketId) {
+            queryParams.marketId = Number(params.marketId);
+        }
+        if (params?.limit) {
+            queryParams.limit = params.limit;
+        }
+        const rawOrders = await this.fetcher.fetchRawOrders(queryParams);
+        return rawOrders.map((o) => this.normalizer.normalizeOrder(o));
+    }
+
+    async fetchAllOrders(params?: OrderHistoryParams): Promise<Order[]> {
+        const queryParams: { marketId?: number; limit?: number } = {};
+        if (params?.marketId) {
+            queryParams.marketId = Number(params.marketId);
+        }
+        if (params?.limit) {
+            queryParams.limit = params.limit;
+        }
+        const rawOrders = await this.fetcher.fetchRawOrders(queryParams);
+        return rawOrders.map((o) => this.normalizer.normalizeOrder(o));
+    }
+
+    // -------------------------------------------------------------------------
+    // Trading (CLOB SDK)
+    // -------------------------------------------------------------------------
+
+    async buildOrder(params: CreateOrderParams): Promise<BuiltOrder> {
+        try {
+            const auth = this.ensureTradeAuth();
+            await auth.getClobClient(); // validate client can be created
+
+            const sdk = await loadSdk();
+            const side = params.side === 'buy' ? sdk.OrderSide.BUY : sdk.OrderSide.SELL;
+            const orderType = params.type === 'market'
+                ? sdk.OrderType.MARKET_ORDER
+                : sdk.OrderType.LIMIT_ORDER;
+
+            const price = params.type === 'market' ? '0' : String(params.price ?? 0);
+
+            const orderData: Record<string, any> = {
+                marketId: Number(params.marketId),
+                tokenId: params.outcomeId,
+                side,
+                orderType,
+                price,
+            };
+
+            if (side === sdk.OrderSide.BUY) {
+                orderData.makerAmountInQuoteToken = String(params.amount);
+            } else {
+                orderData.makerAmountInBaseToken = String(params.amount);
+            }
+
+            return {
+                exchange: 'Opinion',
+                params,
+                raw: orderData,
+            };
+        } catch (error: any) {
+            throw opinionErrorMapper.mapError(error);
+        }
+    }
+
+    async submitOrder(built: BuiltOrder): Promise<Order> {
+        try {
+            const auth = this.ensureTradeAuth();
+            await auth.ensureTradingEnabled();
+
+            const client = await auth.getClobClient();
+            const response = await client.placeOrder(built.raw);
+
+            if (response.errno !== 0) {
+                throw new Error(
+                    `Order submission failed: ${response.errmsg} (errno: ${response.errno})`,
+                );
+            }
+
+            const result = response.result as Record<string, any>;
+            const orderId = result?.orderId ?? result?.order_id ?? 'unknown';
+
+            return {
+                id: String(orderId),
+                marketId: built.params.marketId,
+                outcomeId: built.params.outcomeId,
+                side: built.params.side,
+                type: built.params.type,
+                price: built.params.price,
+                amount: built.params.amount,
+                status: 'open',
+                filled: 0,
+                remaining: built.params.amount,
+                fee: built.params.fee,
+                timestamp: Date.now(),
+            };
+        } catch (error: any) {
+            throw opinionErrorMapper.mapError(error);
+        }
+    }
+
+    async createOrder(params: CreateOrderParams): Promise<Order> {
+        const built = await this.buildOrder(params);
+        return this.submitOrder(built);
+    }
+
+    async cancelOrder(orderId: string): Promise<Order> {
+        try {
+            const auth = this.ensureTradeAuth();
+            const client = await auth.getClobClient();
+
+            const response = await client.cancelOrder(orderId);
+
+            if (response.errno !== 0) {
+                throw new Error(
+                    `Order cancellation failed: ${response.errmsg} (errno: ${response.errno})`,
+                );
+            }
+
+            return {
+                id: orderId,
+                marketId: 'unknown',
+                outcomeId: 'unknown',
+                side: 'buy',
+                type: 'limit',
+                amount: 0,
+                status: 'cancelled',
+                filled: 0,
+                remaining: 0,
+                timestamp: Date.now(),
+            };
+        } catch (error: any) {
+            throw opinionErrorMapper.mapError(error);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // WebSocket
+    // -------------------------------------------------------------------------
+
+    async watchOrderBook(id: string): Promise<OrderBook> {
+        const ws = this.ensureWebSocket();
+        const marketId = this.resolveMarketId(id);
+        return ws.watchOrderBook(marketId);
+    }
+
+    async watchTrades(id: string): Promise<Trade[]> {
+        const ws = this.ensureWebSocket();
+        const marketId = this.resolveMarketId(id);
+        return ws.watchTrades(marketId);
+    }
+
+    async close(): Promise<void> {
+        if (this.ws) {
+            await this.ws.close();
+            this.ws = undefined;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Private helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Resolve an ID (which may be a token/outcome ID or a numeric market ID string)
+     * to the numeric market ID used by the Opinion WebSocket API.
+     */
+    private resolveMarketId(id: string): number {
+        // Check if it's a known outcome/token ID
+        const mapped = this.outcomeToMarketId.get(id);
+        if (mapped !== undefined) return mapped;
+
+        // Fall back to parsing as a numeric market ID
+        const parsed = Number(id);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+
+        throw new Error(
+            `Cannot resolve market ID for "${id}". ` +
+            'Call fetchMarkets() first to populate the outcome-to-market mapping, ' +
+            'or pass a numeric market ID.',
+        );
+    }
+
+    private ensureTradeAuth(): OpinionAuth {
+        if (!this.auth) {
+            throw new AuthenticationError(
+                'Trading requires authentication. ' +
+                'Initialize OpinionExchange with credentials (apiKey, privateKey, funderAddress).',
+                'Opinion',
+            );
+        }
+        if (!this.auth.hasTradeCredentials()) {
+            throw new AuthenticationError(
+                'Trading requires a privateKey and funderAddress. ' +
+                'Initialize OpinionExchange with full trading credentials.',
+                'Opinion',
+            );
+        }
+        return this.auth;
+    }
+
+    private requireWalletAddress(): string {
+        if (!this.walletAddress) {
+            throw new AuthenticationError(
+                'Wallet address is required for this operation. ' +
+                'Initialize OpinionExchange with { walletAddress: "0x..." } in options.',
+                'Opinion',
+            );
+        }
+        return this.walletAddress;
+    }
+
+    private ensureWebSocket(): OpinionWebSocket {
+        if (!this.ws) {
+            if (!this.auth) {
+                throw new AuthenticationError(
+                    'WebSocket requires authentication. ' +
+                    'Initialize OpinionExchange with credentials (apiKey).',
+                    'Opinion',
+                );
+            }
+            this.ws = new OpinionWebSocket(
+                this.auth.getWsUrl(),
+                this.wsConfig,
+            );
+        }
+        return this.ws;
+    }
+}

@@ -87,7 +87,7 @@ export function mapMarketToUnified(event: any, market: any, options: { useQuesti
         liquidity: Number(market.liquidity || market.rewards?.liquidity || 0),
         openInterest: Number(market.openInterest || market.open_interest || 0),
         url: `https://polymarket.com/event/${event.slug}`,
-        image: event.image || market.image || `https://polymarket.com/api/og?slug=${event.slug}`,
+        image: market.image || event.image || `https://polymarket.com/api/og?slug=${event.slug}`,
         category: event.category || event.tags?.[0]?.label,
         tags: event.tags?.map((t: any) => t.label) || []
     } as UnifiedMarket;

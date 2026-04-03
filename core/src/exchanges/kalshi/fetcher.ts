@@ -1,0 +1,460 @@
+import { MarketFilterParams, EventFetchParams, OHLCVParams, TradesParams, MyTradesParams } from '../../BaseExchange';
+import { IExchangeFetcher, FetcherContext } from '../interfaces';
+import { kalshiErrorMapper } from './errors';
+import { NotFound } from '../../errors';
+import { validateIdFormat } from '../../utils/validation';
+import { mapIntervalToKalshi } from './utils';
+
+// ----------------------------------------------------------------------------
+// Raw venue-native types
+// ----------------------------------------------------------------------------
+
+export interface KalshiRawMarket {
+    ticker: string;
+    last_price?: number;
+    yes_ask?: number;
+    yes_bid?: number;
+    subtitle?: string;
+    yes_sub_title?: string;
+    previous_price_dollars?: number;
+    last_price_dollars?: number;
+    rules_primary?: string;
+    rules_secondary?: string;
+    expiration_time: string;
+    volume_24h?: number;
+    volume?: number;
+    liquidity?: number;
+    open_interest?: number;
+    close_time?: string;
+    [key: string]: unknown;
+}
+
+export interface KalshiRawEvent {
+    event_ticker: string;
+    title: string;
+    mututals_description?: string;
+    image_url?: string;
+    category?: string;
+    tags?: string[];
+    series_ticker?: string;
+    markets?: KalshiRawMarket[];
+    [key: string]: unknown;
+}
+
+export interface KalshiRawCandlestick {
+    end_period_ts: number;
+    volume?: number;
+    price?: { open?: number; high?: number; low?: number; close?: number; previous?: number };
+    yes_ask?: { open?: number; high?: number; low?: number; close?: number };
+    yes_bid?: { open?: number; high?: number; low?: number; close?: number };
+    [key: string]: unknown;
+}
+
+export interface KalshiRawOrderBookFp {
+    yes_dollars?: string[][];
+    no_dollars?: string[][];
+}
+
+export interface KalshiRawTrade {
+    trade_id: string;
+    created_time: string;
+    /** @deprecated Old API field — new API uses yes_price_dollars */
+    yes_price?: number;
+    /** New API field: price as a dollar string e.g. "0.4540" */
+    yes_price_dollars?: string;
+    /** @deprecated Old API field — new API uses count_fp */
+    count?: number;
+    /** New API field: count as a string e.g. "424.00" */
+    count_fp?: string;
+    taker_side: string;
+    [key: string]: unknown;
+}
+
+export interface KalshiRawFill {
+    fill_id: string;
+    created_time: string;
+    /** @deprecated Old API field */
+    yes_price?: number;
+    yes_price_dollars?: string;
+    /** @deprecated Old API field */
+    count?: number;
+    count_fp?: string;
+    side: string;
+    order_id: string;
+    [key: string]: unknown;
+}
+
+export interface KalshiRawOrder {
+    order_id: string;
+    ticker: string;
+    side: string;
+    type?: string;
+    yes_price?: number;
+    count: number;
+    remaining_count?: number;
+    status?: string;
+    created_time: string;
+    [key: string]: unknown;
+}
+
+export interface KalshiRawPosition {
+    ticker: string;
+    position: number;
+    total_cost: number;
+    market_price?: number;
+    market_exposure?: number;
+    realized_pnl?: number;
+    [key: string]: unknown;
+}
+
+// ----------------------------------------------------------------------------
+// Fetcher
+// ----------------------------------------------------------------------------
+
+const BATCH_SIZE = 200;
+const MAX_PAGES = 1000;
+const CACHE_TTL = 5 * 60 * 1000;
+
+export class KalshiFetcher implements IExchangeFetcher<KalshiRawEvent, KalshiRawEvent> {
+    private readonly ctx: FetcherContext;
+
+    // Instance-level cache (moved from module-level)
+    private cachedEvents: KalshiRawEvent[] | null = null;
+    private cachedSeriesMap: Map<string, string[]> | null = null;
+    private lastCacheTime: number = 0;
+
+    constructor(ctx: FetcherContext) {
+        this.ctx = ctx;
+    }
+
+    resetCache(): void {
+        this.cachedEvents = null;
+        this.cachedSeriesMap = null;
+        this.lastCacheTime = 0;
+    }
+
+    // -- Markets (returns raw events containing nested markets) ----------------
+
+    async fetchRawMarkets(params?: MarketFilterParams): Promise<KalshiRawEvent[]> {
+        try {
+            if (params?.marketId) {
+                return this.fetchRawEventByTicker(params.marketId);
+            }
+            if (params?.slug) {
+                return this.fetchRawEventByTicker(params.slug);
+            }
+            if (params?.outcomeId) {
+                const ticker = params.outcomeId.replace(/-NO$/, '');
+                return this.fetchRawEventByTicker(ticker);
+            }
+            if (params?.eventId) {
+                return this.fetchRawEventByTicker(params.eventId);
+            }
+            // Default + query cases: fetch all events, caller does filtering
+            return this.fetchRawEventsDefault(params);
+        } catch (error: any) {
+            throw kalshiErrorMapper.mapError(error);
+        }
+    }
+
+    // -- Events ---------------------------------------------------------------
+
+    async fetchRawEvents(params: EventFetchParams): Promise<KalshiRawEvent[]> {
+        try {
+            if (params.eventId) {
+                return this.fetchRawEventByTicker(params.eventId);
+            }
+            if (params.slug) {
+                return this.fetchRawEventByTicker(params.slug);
+            }
+
+            const status = params?.status || 'active';
+
+            if (status === 'all') {
+                const [openEvents, closedEvents, settledEvents] = await Promise.all([
+                    this.fetchAllWithStatus('open'),
+                    this.fetchAllWithStatus('closed'),
+                    this.fetchAllWithStatus('settled'),
+                ]);
+                return [...openEvents, ...closedEvents, ...settledEvents];
+            } else if (status === 'closed' || status === 'inactive') {
+                const [closedEvents, settledEvents] = await Promise.all([
+                    this.fetchAllWithStatus('closed'),
+                    this.fetchAllWithStatus('settled'),
+                ]);
+                return [...closedEvents, ...settledEvents];
+            }
+
+            return this.fetchAllWithStatus('open');
+        } catch (error: any) {
+            throw kalshiErrorMapper.mapError(error);
+        }
+    }
+
+    // -- OHLCV ----------------------------------------------------------------
+
+    async fetchRawOHLCV(id: string, params: OHLCVParams): Promise<KalshiRawCandlestick[]> {
+        validateIdFormat(id, 'OHLCV');
+
+        if (!params.resolution) {
+            throw new Error('fetchOHLCV requires a resolution parameter.');
+        }
+
+        try {
+            const cleanedId = id.replace(/-NO$/, '');
+            const normalizedId = cleanedId.toUpperCase();
+            const interval = mapIntervalToKalshi(params.resolution);
+
+            const parts = normalizedId.split('-');
+            if (parts.length < 2) {
+                throw new Error(`Invalid Kalshi Ticker format: "${id}". Expected format like "FED-25JAN29-B4.75".`);
+            }
+            const seriesTicker = parts.slice(0, -1).join('-');
+
+            const now = Math.floor(Date.now() / 1000);
+            let startTs = now - 24 * 60 * 60;
+            let endTs = now;
+
+            const ensureDate = (d: any) => {
+                if (typeof d === 'string') {
+                    if (!d.endsWith('Z') && !d.match(/[+-]\d{2}:\d{2}$/)) {
+                        return new Date(d + 'Z');
+                    }
+                    return new Date(d);
+                }
+                return d;
+            };
+
+            const pStart = params.start ? ensureDate(params.start) : undefined;
+            const pEnd = params.end ? ensureDate(params.end) : undefined;
+
+            if (pStart) startTs = Math.floor(pStart.getTime() / 1000);
+            if (pEnd) {
+                endTs = Math.floor(pEnd.getTime() / 1000);
+                if (!pStart) startTs = endTs - 24 * 60 * 60;
+            }
+
+            const data = await this.ctx.callApi('GetMarketCandlesticks', {
+                series_ticker: seriesTicker,
+                ticker: normalizedId,
+                period_interval: interval,
+                start_ts: startTs,
+                end_ts: endTs,
+            });
+
+            return data.candlesticks || [];
+        } catch (error: any) {
+            throw kalshiErrorMapper.mapError(error);
+        }
+    }
+
+    // -- OrderBook -------------------------------------------------------------
+
+    async fetchRawOrderBook(id: string): Promise<{ orderbook_fp: KalshiRawOrderBookFp }> {
+        validateIdFormat(id, 'OrderBook');
+        const ticker = id.replace(/-NO$/, '');
+        const data = await this.ctx.callApi('GetMarketOrderbook', { ticker });
+        const book = data.orderbook_fp;
+        if (!book || (!book.yes_dollars?.length && !book.no_dollars?.length)) {
+            throw new NotFound(`Order book not found: ${id}`, 'Kalshi');
+        }
+        return data;
+    }
+
+    // -- Trades ----------------------------------------------------------------
+
+    async fetchRawTrades(id: string, params: TradesParams): Promise<KalshiRawTrade[]> {
+        const ticker = id.replace(/-NO$/, '');
+        const data = await this.ctx.callApi('GetTrades', {
+            ticker,
+            limit: params.limit || 100,
+        });
+        return data.trades || [];
+    }
+
+    // -- User data -------------------------------------------------------------
+
+    async fetchRawMyTrades(params: MyTradesParams): Promise<KalshiRawFill[]> {
+        const queryParams: Record<string, any> = {};
+        if (params?.outcomeId || params?.marketId) {
+            queryParams.ticker = (params.outcomeId || params.marketId)!.replace(/-NO$/, '');
+        }
+        if (params?.since) queryParams.min_ts = Math.floor(params.since.getTime() / 1000);
+        if (params?.until) queryParams.max_ts = Math.floor(params.until.getTime() / 1000);
+        if (params?.limit) queryParams.limit = params.limit;
+        if (params?.cursor) queryParams.cursor = params.cursor;
+
+        const data = await this.ctx.callApi('GetFills', queryParams);
+        return data.fills || [];
+    }
+
+    async fetchRawPositions(): Promise<KalshiRawPosition[]> {
+        const data = await this.ctx.callApi('GetPositions');
+        return data.market_positions || [];
+    }
+
+    async fetchRawBalance(): Promise<{ balance: number; portfolio_value: number }> {
+        return this.ctx.callApi('GetBalance');
+    }
+
+    async fetchRawOrders(queryParams: Record<string, any>): Promise<KalshiRawOrder[]> {
+        const data = await this.ctx.callApi('GetOrders', queryParams);
+        return data.orders || [];
+    }
+
+    async fetchRawHistoricalOrders(queryParams: Record<string, any>): Promise<KalshiRawOrder[]> {
+        const data = await this.ctx.callApi('GetHistoricalOrders', queryParams);
+        return data.orders || [];
+    }
+
+    async fetchRawSeriesMap(): Promise<Map<string, string[]>> {
+        try {
+            const data = await this.ctx.callApi('GetSeriesList');
+            const seriesList = data.series || [];
+            const map = new Map<string, string[]>();
+            for (const series of seriesList) {
+                if (series.tags && series.tags.length > 0) {
+                    map.set(series.ticker, series.tags);
+                }
+            }
+            return map;
+        } catch (e: any) {
+            throw kalshiErrorMapper.mapError(e);
+        }
+    }
+
+    // -- Private helpers -------------------------------------------------------
+
+    async fetchRawEventByTicker(eventTicker: string): Promise<KalshiRawEvent[]> {
+        const normalizedTicker = eventTicker.toUpperCase();
+        const data = await this.ctx.callApi('GetEvent', {
+            event_ticker: normalizedTicker,
+            with_nested_markets: true,
+        });
+
+        const event = data.event;
+        if (!event) return [];
+
+        // Enrich with series tags
+        if (event.series_ticker) {
+            try {
+                const seriesData = await this.ctx.callApi('GetSeries', {
+                    series_ticker: event.series_ticker,
+                });
+                const series = seriesData.series;
+                if (series?.tags?.length > 0 && (!event.tags || event.tags.length === 0)) {
+                    event.tags = series.tags;
+                }
+            } catch {
+                // Non-critical
+            }
+        }
+
+        return [event];
+    }
+
+    private async fetchRawEventsDefault(params?: MarketFilterParams): Promise<KalshiRawEvent[]> {
+        const limit = params?.limit || 250000;
+        const now = Date.now();
+        const status = params?.status || 'active';
+
+        let apiStatus = 'open';
+        if (status === 'closed' || status === 'inactive') apiStatus = 'closed';
+
+        const useCache = status === 'active' || !params?.status;
+
+        if (useCache && this.cachedEvents && this.cachedSeriesMap && now - this.lastCacheTime < CACHE_TTL) {
+            return this.cachedEvents;
+        }
+
+        const isSorted = params?.sort && (params.sort === 'volume' || params.sort === 'liquidity');
+        const fetchLimit = isSorted ? 1000 : limit;
+
+        const [allEvents, fetchedSeriesMap] = await Promise.all([
+            this.fetchActiveEvents(fetchLimit, apiStatus),
+            this.fetchRawSeriesMap(),
+        ]);
+
+        // Enrich events with series tags
+        for (const event of allEvents) {
+            if (event.series_ticker && fetchedSeriesMap.has(event.series_ticker)) {
+                if (!event.tags || event.tags.length === 0) {
+                    event.tags = fetchedSeriesMap.get(event.series_ticker);
+                }
+            }
+        }
+
+        if (fetchLimit >= 1000 && useCache) {
+            this.cachedEvents = allEvents;
+            this.cachedSeriesMap = fetchedSeriesMap;
+            this.lastCacheTime = now;
+        }
+
+        return allEvents;
+    }
+
+    private async fetchActiveEvents(targetMarketCount?: number, status: string = 'open'): Promise<KalshiRawEvent[]> {
+        let allEvents: KalshiRawEvent[] = [];
+        let totalMarketCount = 0;
+        let cursor = null;
+        let page = 0;
+
+        do {
+            try {
+                const queryParams: any = {
+                    limit: BATCH_SIZE,
+                    with_nested_markets: true,
+                    status,
+                };
+                if (cursor) queryParams.cursor = cursor;
+
+                const data = await this.ctx.callApi('GetEvents', queryParams);
+                const events = data.events || [];
+                if (events.length === 0) break;
+
+                allEvents = allEvents.concat(events);
+
+                if (targetMarketCount) {
+                    for (const event of events) {
+                        totalMarketCount += (event.markets || []).length;
+                    }
+                    if (totalMarketCount >= targetMarketCount * 1.5) break;
+                }
+
+                cursor = data.cursor;
+                page++;
+
+                if (!targetMarketCount && page >= 10) break;
+            } catch (e: any) {
+                throw kalshiErrorMapper.mapError(e);
+            }
+        } while (cursor && page < MAX_PAGES);
+
+        return allEvents;
+    }
+
+    private async fetchAllWithStatus(apiStatus: string): Promise<KalshiRawEvent[]> {
+        let allEvents: KalshiRawEvent[] = [];
+        let cursor = null;
+        let page = 0;
+
+        do {
+            const queryParams: any = {
+                limit: BATCH_SIZE,
+                with_nested_markets: true,
+                status: apiStatus,
+            };
+            if (cursor) queryParams.cursor = cursor;
+
+            const data = await this.ctx.callApi('GetEvents', queryParams);
+            const events = data.events || [];
+            if (events.length === 0) break;
+
+            allEvents = allEvents.concat(events);
+            cursor = data.cursor;
+            page++;
+        } while (cursor && page < MAX_PAGES);
+
+        return allEvents;
+    }
+}

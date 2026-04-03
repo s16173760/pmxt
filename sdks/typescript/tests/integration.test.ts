@@ -12,16 +12,30 @@
 import { describe, test, expect, beforeAll } from '@jest/globals';
 import { Polymarket, Kalshi } from '../index';
 
+let serverAvailable = false;
+
+beforeAll(async () => {
+    try {
+        const client = new Polymarket();
+        await client.fetchMarkets({ limit: 1 });
+        serverAvailable = true;
+    } catch {
+        console.info('[Integration] PMXT server not available, skipping integration tests.');
+    }
+}, 30000);
+
 describe('Polymarket Integration', () => {
     let client: Polymarket;
     let markets: any[];
 
     beforeAll(async () => {
+        if (!serverAvailable) return;
         client = new Polymarket();
         markets = await client.fetchMarkets({ query: 'election', limit: 5 });
     }, 120000);
 
     test('fetchMarkets returns valid structure', () => {
+        if (!serverAvailable) return;
         expect(Array.isArray(markets)).toBe(true);
         expect(markets.length).toBeGreaterThan(0);
 
@@ -38,6 +52,7 @@ describe('Polymarket Integration', () => {
     });
 
     test('market outcomes have required fields', () => {
+        if (!serverAvailable) return;
         const outcome = markets[0].outcomes[0];
 
         expect(outcome).toHaveProperty('label');
@@ -49,6 +64,7 @@ describe('Polymarket Integration', () => {
     });
 
     test('volume fields are numeric', () => {
+        if (!serverAvailable) return;
         const market = markets[0];
 
         expect(typeof market.volume24h).toBe('number');
@@ -56,6 +72,7 @@ describe('Polymarket Integration', () => {
     });
 
     test('resolution date is properly typed', () => {
+        if (!serverAvailable) return;
         const market = markets[0];
 
         if (market.resolutionDate) {
@@ -69,11 +86,13 @@ describe('Kalshi Integration', () => {
     let markets: any[];
 
     beforeAll(async () => {
+        if (!serverAvailable) return;
         client = new Kalshi();
         markets = await client.fetchMarkets({ limit: 5 });
     }, 120000);
 
     test('fetchMarkets returns valid structure', () => {
+        if (!serverAvailable) return;
         expect(Array.isArray(markets)).toBe(true);
         expect(markets.length).toBeGreaterThan(0);
 
@@ -84,6 +103,7 @@ describe('Kalshi Integration', () => {
     });
 
     test('market outcomes are properly structured', () => {
+        if (!serverAvailable) return;
         const market = markets[0];
 
         expect(Array.isArray(market.outcomes)).toBe(true);
@@ -94,5 +114,3 @@ describe('Kalshi Integration', () => {
         expect(outcome).toHaveProperty('price');
     });
 });
-
-

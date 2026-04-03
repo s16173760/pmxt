@@ -1,11 +1,7 @@
-name: Verify COMPLIANCE.md
+name: Verify Compliance Matrix
 
 on:
   pull_request:
-    paths:
-      - 'core/src/exchanges/**'
-      - 'core/scripts/generate-compliance.js'
-      - '.github/workflows/compliance-check.yml'
 
 jobs:
   verify:
@@ -18,7 +14,7 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Regenerate COMPLIANCE.md
+      - name: Regenerate compliance matrix
         run: node core/scripts/generate-compliance.js
 
       - name: Check if COMPLIANCE.md changed

@@ -1,0 +1,163 @@
+/**
+ * Typed error classes for pmxt.
+ *
+ * These mirror the error hierarchy in the core TypeScript library,
+ * enabling users to catch specific error types.
+ */
+
+export class PmxtError extends Error {
+    public readonly code: string;
+    public readonly retryable: boolean;
+    public readonly exchange?: string;
+
+    constructor(
+        message: string,
+        code: string = "UNKNOWN_ERROR",
+        retryable: boolean = false,
+        exchange?: string
+    ) {
+        super(message);
+        this.name = this.constructor.name;
+        this.code = code;
+        this.retryable = retryable;
+        this.exchange = exchange;
+
+        if (Error.captureStackTrace) {
+            Error.captureStackTrace(this, this.constructor);
+        }
+    }
+}
+
+// 4xx Client Errors
+
+export class BadRequest extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "BAD_REQUEST", false, exchange);
+    }
+}
+
+export class AuthenticationError extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "AUTHENTICATION_ERROR", false, exchange);
+    }
+}
+
+export class PermissionDenied extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "PERMISSION_DENIED", false, exchange);
+    }
+}
+
+export class NotFoundError extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "NOT_FOUND", false, exchange);
+    }
+}
+
+export class OrderNotFound extends NotFoundError {
+    constructor(orderId: string, exchange?: string) {
+        super(`Order not found: ${orderId}`, exchange);
+        (this as any).code = "ORDER_NOT_FOUND";
+    }
+}
+
+export class MarketNotFound extends NotFoundError {
+    constructor(marketId: string, exchange?: string) {
+        super(`Market not found: ${marketId}`, exchange);
+        (this as any).code = "MARKET_NOT_FOUND";
+    }
+}
+
+export class EventNotFound extends NotFoundError {
+    constructor(identifier: string, exchange?: string) {
+        super(`Event not found: ${identifier}`, exchange);
+        (this as any).code = "EVENT_NOT_FOUND";
+    }
+}
+
+export class RateLimitExceeded extends PmxtError {
+    public readonly retryAfter?: number;
+
+    constructor(message: string, retryAfter?: number, exchange?: string) {
+        super(message, "RATE_LIMIT_EXCEEDED", true, exchange);
+        this.retryAfter = retryAfter;
+    }
+}
+
+export class InvalidOrder extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "INVALID_ORDER", false, exchange);
+    }
+}
+
+export class InsufficientFunds extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "INSUFFICIENT_FUNDS", false, exchange);
+    }
+}
+
+export class ValidationError extends PmxtError {
+    public readonly field?: string;
+
+    constructor(message: string, field?: string, exchange?: string) {
+        super(message, "VALIDATION_ERROR", false, exchange);
+        this.field = field;
+    }
+}
+
+// 5xx Server/Network Errors
+
+export class NetworkError extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "NETWORK_ERROR", true, exchange);
+    }
+}
+
+export class ExchangeNotAvailable extends PmxtError {
+    constructor(message: string, exchange?: string) {
+        super(message, "EXCHANGE_NOT_AVAILABLE", true, exchange);
+    }
+}
+
+// Error code to class mapping
+const ERROR_CODE_MAP: Record<string, new (...args: any[]) => PmxtError> = {
+    BAD_REQUEST: BadRequest,
+    AUTHENTICATION_ERROR: AuthenticationError,
+    PERMISSION_DENIED: PermissionDenied,
+    NOT_FOUND: NotFoundError,
+    ORDER_NOT_FOUND: OrderNotFound,
+    MARKET_NOT_FOUND: MarketNotFound,
+    EVENT_NOT_FOUND: EventNotFound,
+    RATE_LIMIT_EXCEEDED: RateLimitExceeded,
+    INVALID_ORDER: InvalidOrder,
+    INSUFFICIENT_FUNDS: InsufficientFunds,
+    VALIDATION_ERROR: ValidationError,
+    NETWORK_ERROR: NetworkError,
+    EXCHANGE_NOT_AVAILABLE: ExchangeNotAvailable,
+};
+
+/** Convert a server error response object into a typed PmxtError. */
+export function fromServerError(errorData: any): PmxtError {
+    if (typeof errorData === "string") {
+        return new PmxtError(errorData);
+    }
+
+    const message = errorData.message || "Unknown error";
+    const code = errorData.code || "UNKNOWN_ERROR";
+    const retryable = errorData.retryable || false;
+    const exchange = errorData.exchange;
+
+    const ErrorClass = ERROR_CODE_MAP[code];
+
+    if (ErrorClass === RateLimitExceeded) {
+        return new RateLimitExceeded(message, errorData.retryAfter, exchange);
+    }
+    if (ErrorClass === ValidationError) {
+        return new ValidationError(message, errorData.field, exchange);
+    }
+    if (ErrorClass) {
+        return new ErrorClass(message, exchange);
+    }
+
+    return new PmxtError(message, code, retryable, exchange);
+}

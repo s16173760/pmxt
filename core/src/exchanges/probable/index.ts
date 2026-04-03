@@ -13,7 +13,6 @@ import {
     UnifiedEvent,
     OrderBook,
     PriceCandle,
-    CandleInterval,
     Trade,
     UserTrade,
     Order,
@@ -21,9 +20,6 @@ import {
     Balance,
     CreateOrderParams,
 } from '../../types';
-import { fetchMarkets } from './fetchMarkets';
-import { fetchEvents, fetchEventById, fetchEventBySlug } from './fetchEvents';
-import { fetchTrades } from './fetchTrades';
 import { ProbableAuth } from './auth';
 import { ProbableWebSocket, ProbableWebSocketConfig } from './websocket';
 import { probableErrorMapper } from './errors';
@@ -32,25 +28,11 @@ import { OrderSide } from '@prob/clob';
 import { parseOpenApiSpec } from '../../utils/openapi';
 import { probableApiSpec } from './api';
 import { BASE_URL } from './utils';
+import { ProbableFetcher } from './fetcher';
+import { ProbableNormalizer } from './normalizer';
+import { FetcherContext } from '../interfaces';
 
 const BSC_USDT_ADDRESS = '0x55d398326f99059fF775485246999027B3197955';
-
-function aggregateCandles(candles: PriceCandle[], intervalMs: number): PriceCandle[] {
-    if (candles.length === 0) return [];
-    const buckets = new Map<number, PriceCandle>();
-    for (const c of candles) {
-        const key = Math.floor(c.timestamp / intervalMs) * intervalMs;
-        const existing = buckets.get(key);
-        if (!existing) {
-            buckets.set(key, { ...c, timestamp: key });
-        } else {
-            existing.high = Math.max(existing.high, c.high);
-            existing.low = Math.min(existing.low, c.low);
-            existing.close = c.close;
-        }
-    }
-    return Array.from(buckets.values()).sort((a, b) => a.timestamp - b.timestamp);
-}
 
 export class ProbableExchange extends PredictionMarketExchange {
     override readonly has = {
@@ -65,16 +47,22 @@ export class ProbableExchange extends PredictionMarketExchange {
         fetchOpenOrders: true as const,
         fetchPositions: true as const,
         fetchBalance: true as const,
+        watchAddress: false as const,
+        unwatchAddress: false as const,
         watchOrderBook: true as const,
         watchTrades: false as const,
         fetchMyTrades: true as const,
         fetchClosedOrders: false as const,
         fetchAllOrders: false as const,
+        buildOrder: false as const,
+        submitOrder: false as const,
     };
 
     private auth?: ProbableAuth;
     private ws?: ProbableWebSocket;
     private wsConfig?: ProbableWebSocketConfig;
+    private readonly fetcher: ProbableFetcher;
+    private readonly normalizer: ProbableNormalizer;
 
     constructor(credentials?: ExchangeCredentials, wsConfig?: ProbableWebSocketConfig) {
         super(credentials);
@@ -87,6 +75,15 @@ export class ProbableExchange extends PredictionMarketExchange {
 
         const descriptor = parseOpenApiSpec(probableApiSpec, BASE_URL);
         this.defineImplicitApi(descriptor);
+
+        const ctx: FetcherContext = {
+            http: this.http,
+            callApi: this.callApi.bind(this),
+            getHeaders: () => ({ 'Content-Type': 'application/json' }),
+        };
+
+        this.fetcher = new ProbableFetcher(ctx);
+        this.normalizer = new ProbableNormalizer();
     }
 
     get name(): string {
@@ -109,25 +106,58 @@ export class ProbableExchange extends PredictionMarketExchange {
     }
 
     // --------------------------------------------------------------------------
-    // Market Data (read-only, no auth needed)
+    // Market Data (fetcher -> normalizer)
     // --------------------------------------------------------------------------
 
     protected async fetchMarketsImpl(params?: MarketFetchParams): Promise<UnifiedMarket[]> {
-        return fetchMarkets(
-            params,
-            this.http,
-            (tokenId) => this.callApi('getPublicApiV1Midpoint', { token_id: tokenId }),
-            (queryParams) => this.callApi('getPublicApiV1PublicSearch', queryParams)
+        const rawMarkets = await this.fetcher.fetchRawMarkets(params);
+
+        const markets = rawMarkets
+            .map((raw) => this.normalizer.normalizeMarket(raw))
+            .filter((m): m is UnifiedMarket => m !== null);
+
+        // Filter by outcomeId client-side if requested
+        const filtered = params?.outcomeId
+            ? markets.filter(m => m.outcomes.some(o => o.outcomeId === params.outcomeId))
+            : markets;
+
+        // Slug-based exact matching for search results
+        if (params?.slug && rawMarkets.length > 0) {
+            const exact = filtered.filter(
+                m => m.marketId === params.slug ||
+                    m.url.includes(params.slug!) ||
+                    (rawMarkets.find(r => this.normalizer.normalizeMarket(r)?.marketId === m.marketId) as any)?._parentEvent?.slug === params.slug
+            );
+            if (exact.length > 0) {
+                await this.normalizer.enrichMarketsWithPrices(
+                    exact,
+                    (tokenId) => this.fetcher.fetchRawMidpoint(tokenId)
+                );
+                return exact;
+            }
+        }
+
+        await this.normalizer.enrichMarketsWithPrices(
+            filtered,
+            (tokenId) => this.fetcher.fetchRawMidpoint(tokenId)
         );
+        return filtered;
     }
 
     protected async fetchEventsImpl(params: EventFetchParams): Promise<UnifiedEvent[]> {
-        return fetchEvents(
-            params,
-            this.http,
-            (tokenId) => this.callApi('getPublicApiV1Midpoint', { token_id: tokenId }),
-            (queryParams) => this.callApi('getPublicApiV1PublicSearch', queryParams)
+        const rawEvents = await this.fetcher.fetchRawEvents(params);
+
+        const events = rawEvents
+            .map((raw) => this.normalizer.normalizeEvent(raw))
+            .filter((e): e is UnifiedEvent => e !== null);
+
+        const allMarkets = events.flatMap((e) => e.markets);
+        await this.normalizer.enrichMarketsWithPrices(
+            allMarkets,
+            (tokenId) => this.fetcher.fetchRawMidpoint(tokenId)
         );
+
+        return events;
     }
 
     /**
@@ -150,7 +180,16 @@ export class ProbableExchange extends PredictionMarketExchange {
      *     print(len(event.markets), 'markets')
      */
     async getEventById(id: string): Promise<UnifiedEvent | null> {
-        return fetchEventById(id, this.http, (tokenId) => this.callApi('getPublicApiV1Midpoint', { token_id: tokenId }));
+        const raw = await this.fetcher.fetchRawEventById(id);
+        if (!raw) return null;
+        const event = this.normalizer.normalizeEvent(raw);
+        if (event) {
+            await this.normalizer.enrichMarketsWithPrices(
+                event.markets,
+                (tokenId) => this.fetcher.fetchRawMidpoint(tokenId)
+            );
+        }
+        return event;
     }
 
     /**
@@ -171,88 +210,49 @@ export class ProbableExchange extends PredictionMarketExchange {
      *     print(event.title)
      */
     async getEventBySlug(slug: string): Promise<UnifiedEvent | null> {
-        return fetchEventBySlug(slug, this.http, (tokenId) => this.callApi('getPublicApiV1Midpoint', { token_id: tokenId }));
+        const raw = await this.fetcher.fetchRawEventBySlug(slug);
+        if (!raw) return null;
+        const event = this.normalizer.normalizeEvent(raw);
+        if (event) {
+            await this.normalizer.enrichMarketsWithPrices(
+                event.markets,
+                (tokenId) => this.fetcher.fetchRawMidpoint(tokenId)
+            );
+        }
+        return event;
     }
 
     async fetchOrderBook(id: string): Promise<OrderBook> {
-        const data = await this.callApi('getPublicApiV1Book', { token_id: id });
-        const bids = (data.bids || [])
-            .map((level: any) => ({ price: parseFloat(level.price), size: parseFloat(level.size) }))
-            .sort((a: any, b: any) => b.price - a.price);
-        const asks = (data.asks || [])
-            .map((level: any) => ({ price: parseFloat(level.price), size: parseFloat(level.size) }))
-            .sort((a: any, b: any) => a.price - b.price);
-        return {
-            bids,
-            asks,
-            timestamp: data.timestamp ? new Date(data.timestamp).getTime() : Date.now(),
-        };
+        const raw = await this.fetcher.fetchRawOrderBook(id);
+        return this.normalizer.normalizeOrderBook(raw, id);
     }
 
     async fetchOHLCV(id: string, params: OHLCVParams): Promise<PriceCandle[]> {
         if (!params.resolution) {
             throw new Error('fetchOHLCV requires a resolution parameter.');
         }
-
-        const INTERVAL_MAP: Record<CandleInterval, string> = {
-            '1m': '1m',
-            '5m': '1m',
-            '15m': '1m',
-            '1h': '1h',
-            '6h': '6h',
-            '1d': '1d',
-        };
-
-        const queryParams: Record<string, any> = {
-            market: id,
-            interval: INTERVAL_MAP[params.resolution] || '1h',
-        };
-        if (params.start) queryParams.startTs = Math.floor(params.start.getTime() / 1000);
-        if (params.end) queryParams.endTs = Math.floor(params.end.getTime() / 1000);
-
-        const data = await this.callApi('getPublicApiV1PricesHistory', queryParams);
-        const points: any[] = data?.history || data || [];
-
-        let candles: PriceCandle[] = points
-            .map((p: any) => {
-                const price = Number(p.p);
-                const ts = Number(p.t) * 1000;
-                return { timestamp: ts, open: price, high: price, low: price, close: price, volume: 0 };
-            })
-            .sort((a: PriceCandle, b: PriceCandle) => a.timestamp - b.timestamp);
-
-        if (params.resolution === '5m') {
-            candles = aggregateCandles(candles, 5 * 60 * 1000);
-        } else if (params.resolution === '15m') {
-            candles = aggregateCandles(candles, 15 * 60 * 1000);
-        }
-
-        if (params.limit) {
-            candles = candles.slice(-params.limit);
-        }
-
-        return candles;
+        const rawPoints = await this.fetcher.fetchRawOHLCV(id, params);
+        return this.normalizer.normalizeOHLCV(rawPoints, params);
     }
 
     async fetchMyTrades(params?: MyTradesParams): Promise<UserTrade[]> {
         const auth = this.ensureAuth();
         const address = auth.getAddress();
+        const rawTrades = await this.fetcher.fetchRawMyTrades(params || {}, address);
+        return rawTrades.map((raw, i) => this.normalizer.normalizeUserTrade(raw, i));
+    }
 
-        const queryParams: Record<string, any> = { user: address };
-        if (params?.limit) queryParams.limit = params.limit;
+    async fetchTrades(id: string, params: TradesParams | HistoryFilterParams): Promise<Trade[]> {
+        const auth = this.ensureAuth();
+        const client = auth.getClobClient();
 
-        const data = await this.callApi('getPublicApiV1Trades', queryParams);
-        const trades = Array.isArray(data) ? data : (data.data || []);
-        return trades.map((t: any) => ({
-            id: String(t.tradeId || t.id || t.timestamp),
-            timestamp: typeof t.time === 'number'
-                ? (t.time > 1e12 ? t.time : t.time * 1000)
-                : Date.now(),
-            price: parseFloat(t.price || '0'),
-            amount: parseFloat(t.qty || t.size || t.amount || '0'),
-            side: (t.side || '').toLowerCase() === 'buy' ? 'buy' as const : 'sell' as const,
-            orderId: t.orderId,
-        }));
+        // Use CLOB client directly for trades (legacy behaviour preserved)
+        const queryParams: any = { tokenId: id };
+        if (params.limit) queryParams.limit = params.limit;
+
+        const response = await client.getTrades(queryParams);
+        const trades = Array.isArray(response) ? response : (response as any)?.data || [];
+        return trades.map((raw: any, i: number) => this.normalizer.normalizeTrade(raw, i));
     }
 
     // --------------------------------------------------------------------------
@@ -293,7 +293,6 @@ export class ProbableExchange extends PredictionMarketExchange {
 
             const response = await client.postOrder(unsignedOrder);
 
-            // postOrder returns PostOrderResponse which can be success or error
             if (response && 'code' in response && (response as any).code !== undefined) {
                 throw new Error((response as any).msg || 'Order placement failed');
             }
@@ -440,18 +439,8 @@ export class ProbableExchange extends PredictionMarketExchange {
         try {
             const auth = this.ensureAuth();
             const address = auth.getAddress();
-            const result = await this.callApi('getPublicApiV1PositionCurrent', { user: address, limit: 500 });
-            const data = Array.isArray(result) ? result : (result?.data || []);
-            return data.map((p: any) => ({
-                marketId: String(p.conditionId || p.condition_id || ''),
-                outcomeId: String(p.asset || p.token_id || ''),
-                outcomeLabel: p.outcome || p.title || 'Unknown',
-                size: parseFloat(p.size || '0'),
-                entryPrice: parseFloat(p.avgPrice || p.avg_price || '0'),
-                currentPrice: parseFloat(p.curPrice || p.cur_price || '0'),
-                unrealizedPnL: parseFloat(p.cashPnl || p.cash_pnl || '0'),
-                realizedPnL: parseFloat(p.realizedPnl || p.realized_pnl || '0'),
-            }));
+            const rawItems = await this.fetcher.fetchRawPositions(address);
+            return rawItems.map((raw) => this.normalizer.normalizePosition(raw));
         } catch (error: any) {
             throw probableErrorMapper.mapError(error);
         }
@@ -505,12 +494,6 @@ export class ProbableExchange extends PredictionMarketExchange {
         } catch (error: any) {
             throw probableErrorMapper.mapError(error);
         }
-    }
-
-    async fetchTrades(id: string, params: TradesParams | HistoryFilterParams): Promise<Trade[]> {
-        const auth = this.ensureAuth();
-        const client = auth.getClobClient();
-        return fetchTrades(id, params, client, this.http);
     }
 
     // --------------------------------------------------------------------------

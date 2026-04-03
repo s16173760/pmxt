@@ -53,9 +53,34 @@ pmxt.restart_server()
 
 ## Methods
 
-### `load_markets`
+### `implicit_api`
 
 How long (ms) a market snapshot created by `fetchMarketsPaginated` remains valid
+
+
+**Signature:**
+
+```python
+def implicit_api() -> List[ImplicitApiMethodInfo]:
+```
+
+**Parameters:**
+
+- None
+
+**Returns:** List[ImplicitApiMethodInfo] - Result
+
+**Example:**
+
+```python
+# No example available
+```
+
+
+---
+### `load_markets`
+
+Load and cache all markets from the exchange into `this.markets` and `this.marketsBySlug`.
 
 
 **Signature:**
@@ -163,7 +188,7 @@ def fetch_events(params: Optional[EventFetchParams] = None) -> List[UnifiedEvent
 **Parameters:**
 
 - `params` ([EventFetchParams](#eventfetchparams)) - **Optional**: Optional parameters for search and filtering
-  - `params.query` - Search keyword to filter events (required)
+  - `params.query` - Search keyword to filter events. If omitted, returns top events by volume.
   - `params.limit` - Maximum number of results
   - `params.offset` - Pagination offset
   - `params.search_in` - Where to search ('title' | 'description' | 'both')
@@ -243,13 +268,13 @@ Fetch historical OHLCV (candlestick) price data for a specific market outcome.
 **Signature:**
 
 ```python
-def fetch_ohlcv(id: str, params: OHLCVParams | HistoryFilterParams) -> List[PriceCandle]:
+def fetch_ohlcv(id: str, params: OHLCVParams) -> List[PriceCandle]:
 ```
 
 **Parameters:**
 
 - `id` (str): The Outcome ID (outcomeId). Use outcome.outcomeId, NOT market.marketId
-- `params` (OHLCVParams | HistoryFilterParams): OHLCV parameters including resolution (required)
+- `params` ([OHLCVParams](#ohlcvparams)): OHLCV parameters including resolution (required)
 
 **Returns:** List[[PriceCandle](#pricecandle)] - Array of price candles
 
@@ -372,6 +397,69 @@ order = exchange.create_order(
 
 
 ---
+### `build_order`
+
+Build an order payload without submitting it to the exchange.
+
+
+**Signature:**
+
+```python
+def build_order(params: CreateOrderParams) -> BuiltOrder:
+```
+
+**Parameters:**
+
+- `params` ([CreateOrderParams](#createorderparams)): Order parameters (same as createOrder)
+
+**Returns:** [BuiltOrder](#builtorder) - A BuiltOrder containing the exchange-native payload
+
+**Example:**
+
+```python
+# Build then submit a Polymarket order
+built = exchange.build_order(
+    market_id=market.market_id,
+    outcome_id=market.yes.outcome_id,
+    side='buy',
+    type='limit',
+    amount=10,
+    price=0.55
+)
+print(built.signed_order)
+order = exchange.submit_order(built)
+```
+
+
+---
+### `submit_order`
+
+Submit a pre-built order returned by buildOrder().
+
+
+**Signature:**
+
+```python
+def submit_order(built: BuiltOrder) -> Order:
+```
+
+**Parameters:**
+
+- `built` ([BuiltOrder](#builtorder)): A BuiltOrder from buildOrder()
+
+**Returns:** [Order](#order) - The submitted order
+
+**Example:**
+
+```python
+# Submit a pre-built order
+built = exchange.build_order(params)
+order = exchange.submit_order(built)
+print(f"Order {order.id}: {order.status}")
+```
+
+
+---
 ### `cancel_order`
 
 Cancel an existing open order.
@@ -465,12 +553,12 @@ Fetch current user positions across all markets.
 **Signature:**
 
 ```python
-def fetch_positions() -> List[Position]:
+def fetch_positions(address: Optional[str] = None) -> List[Position]:
 ```
 
 **Parameters:**
 
-- None
+- `address` (str) - **Optional**: Optional public wallet address
 
 **Returns:** List[[Position](#position)] - Array of user positions
 
@@ -494,12 +582,12 @@ Fetch account balances.
 **Signature:**
 
 ```python
-def fetch_balance() -> List[Balance]:
+def fetch_balance(address: Optional[str] = None) -> List[Balance]:
 ```
 
 **Parameters:**
 
-- None
+- `address` (str) - **Optional**: Optional public wallet address
 
 **Returns:** List[[Balance](#balance)] - Array of account balances
 
@@ -681,12 +769,13 @@ Watch trade executions in real-time via WebSocket.
 **Signature:**
 
 ```python
-def watch_trades(id: str, since: Optional[float] = None, limit: Optional[float] = None) -> List[Trade]:
+def watch_trades(id: str, address: Optional[str] = None, since: Optional[float] = None, limit: Optional[float] = None) -> List[Trade]:
 ```
 
 **Parameters:**
 
 - `id` (str): The Outcome ID to watch
+- `address` (str) - **Optional**: Public wallet address
 - `since` (float) - **Optional**: Optional timestamp to filter trades from
 - `limit` (float) - **Optional**: Optional limit for number of trades
 
@@ -700,6 +789,61 @@ while True:
     trades = exchange.watch_trades(outcome.outcome_id)
     for trade in trades:
         print(f"{trade.side} {trade.amount} @ {trade.price}")
+```
+
+
+---
+### `watch_address`
+
+Stream activity for a public wallet address
+
+
+**Signature:**
+
+```python
+def watch_address(address: str, types: Optional[List[SubscriptionOption]] = None) -> SubscribedAddressSnapshot:
+```
+
+**Parameters:**
+
+- `address` (str): Public wallet address to watch
+- `types` (List[SubscriptionOption]) - **Optional**: Subset of activity to watch (default: all types)
+
+**Returns:** SubscribedAddressSnapshot - Promise that resolves with the latest SubscribedAddressSnapshot snapshot
+
+**Example:**
+
+```python
+# Stream wallet activity
+while True:
+    activity = exchange.watch_address('0xabc...', ['trades', 'positions'])
+    print(activity.trades, activity.positions)
+```
+
+
+---
+### `unwatch_address`
+
+Stop watching a previously registered wallet address and release its resource updates.
+
+
+**Signature:**
+
+```python
+def unwatch_address(address: str) -> void:
+```
+
+**Parameters:**
+
+- `address` (str): Public wallet address to stop watching
+
+**Returns:** void - Result
+
+**Example:**
+
+```python
+# Stop watching
+exchange.unwatch_address('0xabc...')
 ```
 
 
@@ -726,31 +870,6 @@ def close() -> void:
 ```python
 # Close connections
 exchange.close()
-```
-
-
----
-### `implicit_api`
-
-Introspection getter: returns info about all implicit API methods.
-
-
-**Signature:**
-
-```python
-def implicit_api() -> List[ImplicitApiMethodInfo]:
-```
-
-**Parameters:**
-
-- None
-
-**Returns:** List[ImplicitApiMethodInfo] - Result
-
-**Example:**
-
-```python
-# No example available
 ```
 
 
@@ -1229,6 +1348,21 @@ class PaginatedMarketsResult:
 data: List[UnifiedMarket] # 
 total: int # 
 next_cursor: str # 
+```
+
+---
+### `BuiltOrder`
+
+An order built but not yet submitted, ready for inspection or middleware forwarding
+
+```python
+@dataclass
+class BuiltOrder:
+exchange: str # The exchange name this order was built for
+params: CreateOrderParams # 
+signed_order: object # For CLOB exchanges (Polymarket): the EIP-712 signed order ready to POST
+tx: object # For on-chain AMM exchanges: the EVM transaction payload (reserved for future use)
+raw: Any # The raw, exchange-native payload. Always present.
 ```
 
 ---

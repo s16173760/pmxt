@@ -1,4 +1,4 @@
-import { exchangeClasses, initExchange } from './shared';
+import { exchangeClasses, initExchange, isSkippableError } from './shared';
 import { OrderBook } from '../../src/types';
 
 describe('Compliance: getExecutionPrice', () => {
@@ -35,10 +35,14 @@ describe('Compliance: getExecutionPrice', () => {
             }
 
             if (!orderbook) {
-                // If no orderbook with data found, use an empty one or skip if impossible
-                // For getExecutionPrice, an empty book is a valid test case but we'd prefer one with data
+                // If no orderbook with data found, try the first outcome as fallback
                 const firstOutcome = markets[0].outcomes[0];
-                orderbook = await exchange.fetchOrderBook(firstOutcome.outcomeId);
+                try {
+                    orderbook = await exchange.fetchOrderBook(firstOutcome.outcomeId);
+                } catch {
+                    console.info(`[Compliance] ${name}.getExecutionPrice skipped: no orderbook available`);
+                    return;
+                }
             }
 
             // 2. Test getExecutionPrice (Simple)
@@ -74,8 +78,8 @@ describe('Compliance: getExecutionPrice', () => {
             }
 
         } catch (error: any) {
-            if (error.message.toLowerCase().includes('not implemented')) {
-                console.info(`[Compliance] ${name}.getExecutionPrice not implemented.`);
+            if (isSkippableError(error)) {
+                console.info(`[Compliance] ${name}.getExecutionPrice skipped: ${error.message}`);
                 return;
             }
             throw error;

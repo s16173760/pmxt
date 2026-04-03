@@ -410,6 +410,80 @@ paths:
                       data:
                         $ref: '#/components/schemas/Order'
       description: Place a new order on the exchange.
+  '/api/{exchange}/buildOrder':
+    post:
+      summary: Build Order
+      operationId: buildOrder
+      parameters:
+        - $ref: '#/components/parameters/ExchangeParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              title: BuildOrderRequest
+              type: object
+              properties:
+                args:
+                  type: array
+                  maxItems: 1
+                  items:
+                    $ref: '#/components/schemas/CreateOrderParams'
+                  minItems: 1
+                credentials:
+                  $ref: '#/components/schemas/ExchangeCredentials'
+              required:
+                - args
+      responses:
+        '200':
+          description: Build Order response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/BuiltOrder'
+      description: >-
+        Build an order payload without submitting it to the exchange. Returns the exchange-native signed order or
+        request body for inspection, forwarding through a middleware layer, or deferred submission via submitOrder().
+  '/api/{exchange}/submitOrder':
+    post:
+      summary: Submit Order
+      operationId: submitOrder
+      parameters:
+        - $ref: '#/components/parameters/ExchangeParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              title: SubmitOrderRequest
+              type: object
+              properties:
+                args:
+                  type: array
+                  maxItems: 1
+                  items:
+                    $ref: '#/components/schemas/BuiltOrder'
+                  minItems: 1
+                credentials:
+                  $ref: '#/components/schemas/ExchangeCredentials'
+              required:
+                - args
+      responses:
+        '200':
+          description: Submit Order response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Order'
+      description: Submit a pre-built order returned by buildOrder().
   '/api/{exchange}/cancelOrder':
     post:
       summary: Cancel Order
@@ -634,8 +708,9 @@ paths:
               properties:
                 args:
                   type: array
-                  maxItems: 0
-                  items: {}
+                  maxItems: 1
+                  items:
+                    type: string
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -668,8 +743,9 @@ paths:
               properties:
                 args:
                   type: array
-                  maxItems: 0
-                  items: {}
+                  maxItems: 1
+                  items:
+                    type: string
                 credentials:
                   $ref: '#/components/schemas/ExchangeCredentials'
       responses:
@@ -923,9 +999,10 @@ paths:
                 args:
                   type: array
                   minItems: 1
-                  maxItems: 3
+                  maxItems: 4
                   items:
                     oneOf:
+                      - type: string
                       - type: string
                       - type: number
                       - type: number
@@ -950,6 +1027,79 @@ paths:
       description: >-
         Watch trade executions in real-time via WebSocket. Returns a promise that resolves with the next trade(s). Call
         repeatedly in a loop to stream updates (CCXT Pro pattern).
+  '/api/{exchange}/watchAddress':
+    post:
+      summary: Watch Address
+      operationId: watchAddress
+      parameters:
+        - $ref: '#/components/parameters/ExchangeParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              title: WatchAddressRequest
+              type: object
+              properties:
+                args:
+                  type: array
+                  minItems: 1
+                  maxItems: 2
+                  items:
+                    oneOf:
+                      - type: string
+                      - type: array
+                        items:
+                          type: object
+                credentials:
+                  $ref: '#/components/schemas/ExchangeCredentials'
+              required:
+                - args
+      responses:
+        '200':
+          description: Watch Address response
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+      description: >-
+        Stream activity for a public wallet address Returns a promise that resolves with the next activity snapshot
+        whenever a change is detected. Call repeatedly in a loop to stream updates (CCXT Pro pattern).
+  '/api/{exchange}/unwatchAddress':
+    post:
+      summary: Unwatch Address
+      operationId: unwatchAddress
+      parameters:
+        - $ref: '#/components/parameters/ExchangeParam'
+      requestBody:
+        content:
+          application/json:
+            schema:
+              title: UnwatchAddressRequest
+              type: object
+              properties:
+                args:
+                  type: array
+                  maxItems: 1
+                  items:
+                    type: string
+                  minItems: 1
+                credentials:
+                  $ref: '#/components/schemas/ExchangeCredentials'
+              required:
+                - args
+      responses:
+        '200':
+          description: Unwatch Address response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BaseResponse'
+      description: Stop watching a previously registered wallet address and release its resource updates.
   '/api/{exchange}/close':
     post:
       summary: Close
@@ -993,6 +1143,7 @@ components:
           - probable
           - baozi
           - myriad
+          - opinion
       required: true
       description: The prediction market exchange to target.
   schemas:
@@ -1442,6 +1593,33 @@ components:
           type: number
         fee:
           type: number
+    BuiltOrder:
+      type: object
+      description: 'An order built but not yet submitted, ready for inspection or middleware forwarding'
+      properties:
+        exchange:
+          type: string
+          description: The exchange name this order was built for
+        params:
+          $ref: '#/components/schemas/CreateOrderParams'
+        signedOrder:
+          type: object
+          additionalProperties: true
+          description: 'For CLOB exchanges (Polymarket): the EIP-712 signed order ready to POST'
+        tx:
+          type: object
+          description: 'For on-chain AMM exchanges: the EVM transaction payload (reserved for future use)'
+          properties:
+            to:
+              type: string
+            data:
+              type: string
+            value:
+              type: string
+            chainId:
+              type: integer
+        raw:
+          description: 'The raw, exchange-native payload. Always present.'
     MyTradesParams:
       type: object
       properties:

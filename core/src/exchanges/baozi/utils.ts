@@ -3,6 +3,7 @@ import bs58 from 'bs58';
 import { createHash } from 'crypto';
 import { UnifiedMarket, MarketOutcome } from '../../types';
 import { addBinaryOutcomes } from '../../utils/market-utils';
+import { clampBaoziPrice, normalizeBaoziOutcomes } from './price';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -387,13 +388,13 @@ export function mapBooleanToUnified(market: BaoziMarket, pubkey: string): Unifie
             outcomeId: `${pubkey}-YES`,
             marketId: pubkey,
             label: 'Yes',
-            price: yesPrice,
+            price: clampBaoziPrice(yesPrice),
         },
         {
             outcomeId: `${pubkey}-NO`,
             marketId: pubkey,
             label: 'No',
-            price: noPrice,
+            price: clampBaoziPrice(noPrice),
         },
     ];
 
@@ -431,17 +432,12 @@ export function mapRaceToUnified(market: BaoziRaceMarket, pubkey: string): Unifi
             outcomeId: `${pubkey}-${i}`,
             marketId: pubkey,
             label: market.outcomeLabels[i] || `Outcome ${i + 1}`,
-            price: Math.min(Math.max(price, 0), 1),
+            price: clampBaoziPrice(price),
         });
     }
 
     // Normalize prices to sum to 1
-    const priceSum = outcomes.reduce((s, o) => s + o.price, 0);
-    if (priceSum > 0) {
-        for (const o of outcomes) {
-            o.price = o.price / priceSum;
-        }
-    }
+    normalizeBaoziOutcomes(outcomes);
 
     const um: UnifiedMarket = {
         marketId: pubkey,
