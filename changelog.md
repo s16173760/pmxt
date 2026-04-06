@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.0] - 2026-04-06
+
+### Added
+
+- **Polymarket US Exchange Integration** 🇺🇸: New adapter wrapping the official `polymarket-us` SDK for the US-regulated Polymarket gateway. Supports `fetchMarkets` / `fetchEvents` (by slug, event, or outcomeId), `fetchOrderBook`, `fetchBalance`, `fetchPositions`, `fetchMyTrades`, `fetchOpenOrders`, `fetchOrder`, `createOrder` / `buildOrder` / `submitOrder`, `cancelOrder`, and WebSocket streaming via `watchOrderBook` / `watchTrades` (backed by the SDK's `MarketsWebSocket`; credentials are required because the SDK factory mandates `keyId` + `secretKey` even for the public market socket). Handles the long-side price convention (all API prices are YES-side; short-side inputs are auto-converted via `1 - price`), normalizes outcomes to `${slug}:long` / `${slug}:short`, surfaces live prices from `marketSides[].price` (with `outcomePrices[]` fallback), lifts `orderPriceMinTickSize` onto `UnifiedMarket.tickSize`, and stashes human side labels (e.g. team names) in outcome metadata. Maintains an in-memory `orderId -> marketSlug` cache so `cancelOrder(orderId)` can supply the SDK-required body field. The normalizer reads the real gateway response shape (`question`, `endDate`, `category`, `tags`, `marketSides`) rather than the SDK's declared types. Prices serialize at 3-decimal precision (`"0.864"`) and the default tick size is `0.001`, matching observed live markets. Includes unit tests covering price conversion, normalizer, error mapping, the exchange wrapper, and the WebSocket layer, plus a live-gateway smoke script (`core/scripts/smoke-polymarket-us.ts`).
+
+  Polymarket US is a **distinct exchange** from the international Polymarket adapter — different API, different auth, different price convention. Usage is parallel:
+
+  ```typescript
+  import { Polymarket, PolymarketUS } from 'pmxtjs';
+
+  // International Polymarket (USDC on-chain wallet)
+  const intl = new Polymarket({
+    privateKey: process.env.POLYMARKET_PRIVATE_KEY!,
+    funderAddress: process.env.POLYMARKET_FUNDER_ADDRESS!,
+  });
+  const intlMarkets = await intl.fetchMarkets({ limit: 10 });
+  console.log(intlMarkets[0].yes.price);
+
+  // Polymarket US (API key + secret, USD-denominated)
+  const us = new PolymarketUS({
+    keyId: process.env.POLYMARKET_US_KEY_ID!,
+    secretKey: process.env.POLYMARKET_US_SECRET_KEY!,
+  });
+  const usMarkets = await us.fetchMarkets({ limit: 10 });
+  console.log(usMarkets[0].yes.price); // populated from marketSides[].price
+  ```
+
 ## [2.24.0] - 2026-04-06
 
 ### Added
