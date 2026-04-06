@@ -1,0 +1,90 @@
+name: Sync Upstream (Smart Conflict Resolve)
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
+      - name: Add upstream
+        run: |
+          git remote add upstream https://github.com/pmxt-dev/pmxt.git
+          git fetch upstream
+
+      # ✅ Check updates
+      - name: Check for updates
+        run: |
+          if git diff --quiet main upstream/main; then
+            echo "NO_CHANGES=true" >> $GITHUB_ENV
+          fi
+
+      - name: Stop if no changes
+        if: env.NO_CHANGES == 'true'
+        run: |
+          echo "No upstream updates. Skip."
+
+      # ✅ rebase
+      - name: Try rebase
+        if: env.NO_CHANGES != 'true'
+        run: |
+          if ! git rebase upstream/main -X theirs; then
+            echo "REBASE_FAILED=true" >> $GITHUB_ENV
+          fi
+
+      # ✅ Resolve files
+      - name: Resolve protected files
+        if: env.REBASE_FAILED == 'true'
+        run: |
+          # ⚠️ rebase theirs = self
+          git checkout --theirs README.md || true
+          git checkout --theirs .github/workflows/sync-upstream.yml || true
+
+          # 👉 not update
+          # git checkout --theirs config.yaml || true
+          # git checkout --theirs docker-compose.yml || true
+
+          git add .
+          git -c core.editor=true rebase --continue || echo "REBASE_FAILED=true" >> $GITHUB_ENV
+
+      # ✅ push
+      - name: Push if success
+        if: env.REBASE_FAILED != 'true' && env.NO_CHANGES != 'true'
+        run: |
+          git push origin main --force-with-lease
+
+      # ❗ fallback: PR
+      - name: Fallback PR branch
+        if: env.REBASE_FAILED == 'true'
+        run: |
+          git rebase --abort || true
+          git checkout -B sync-upstream main
+          git merge upstream/main || true
+          git push origin sync-upstream --force
+
+      - name: Open Pull Request
+        if: env.REBASE_FAILED == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: sync-upstream
+          base: main
+          title: "⚠️ Sync upstream (manual review needed)"
+          body: |
+            Conflict not auto-resolved.
+
+            Please review manually.
+          delete-branch: true
