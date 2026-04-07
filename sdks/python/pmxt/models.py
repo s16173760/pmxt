@@ -86,6 +86,18 @@ class UnifiedMarket:
     tags: Optional[List[str]] = None
     """Market tags"""
 
+    slug: Optional[str] = None
+    """Market slug (URL-friendly identifier)"""
+
+    tick_size: Optional[float] = None
+    """Minimum price increment (e.g., 0.01, 0.001)"""
+
+    status: Optional[str] = None
+    """Venue-native lifecycle status (e.g. 'active', 'closed', 'archived')."""
+
+    contract_address: Optional[str] = None
+    """On-chain contract / condition identifier where applicable (Polymarket conditionId, etc.)."""
+
     yes: Optional[MarketOutcome] = None
     """Convenience access to the Yes outcome for binary markets."""
 
@@ -205,12 +217,18 @@ class UnifiedEvent:
     
     image: Optional[str] = None
     """Event image URL"""
-    
+
     category: Optional[str] = None
     """Event category"""
-    
+
     tags: Optional[List[str]] = None
     """Event tags"""
+
+    volume_24h: Optional[float] = None
+    """24-hour trading volume (USD)"""
+
+    volume: Optional[float] = None
+    """Total / Lifetime volume (sum across markets; undefined if no market provides it)"""
 
 
 

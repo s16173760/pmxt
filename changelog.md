@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [2.25.2] - 2026-04-07
+
+### Fixed
+
+- **TypeScript and Python SDKs: dropped fields in `convertMarket` / `convertEvent`**: The hand-maintained converter shims at the top of `sdks/typescript/pmxt/client.ts` and `sdks/python/pmxt/client.py` had their own allowlists and were silently dropping `slug`, `tickSize`, `status`, `contractAddress` on `UnifiedMarket` and `volume`, `volume24h` on `UnifiedEvent` even though the sidecar populates them and the generated OpenAPI client maps them. Both shims now copy the full set, and the corresponding `UnifiedMarket` / `UnifiedEvent` interfaces in `models.ts` / `models.py` declare the new fields. The 2.25.1 release fixed the sidecar end of the pipe; this release fixes the SDK consumer end.
+
 ## [2.25.1] - 2026-04-07
 
 ### Fixed

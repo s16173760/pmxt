@@ -41,6 +41,9 @@ export interface UnifiedMarket {
     /** Market title */
     title: string;
 
+    /** Market slug (URL-friendly identifier) */
+    slug?: string;
+
     /** All tradeable outcomes */
     outcomes: MarketOutcome[];
 
@@ -73,6 +76,15 @@ export interface UnifiedMarket {
 
     /** Market tags */
     tags?: string[];
+
+    /** Minimum price increment (e.g., 0.01, 0.001) */
+    tickSize?: number;
+
+    /** Venue-native lifecycle status (e.g. 'active', 'closed', 'archived'). */
+    status?: string;
+
+    /** On-chain contract / condition identifier where applicable (Polymarket conditionId, etc.). */
+    contractAddress?: string;
 
     /** ID of the parent event this market belongs to */
     eventId?: string;
@@ -468,6 +480,12 @@ export interface UnifiedEvent {
 
     /** Related markets in this event */
     markets: MarketList;
+
+    /** 24-hour trading volume (USD) */
+    volume24h?: number;
+
+    /** Total / Lifetime volume (sum across markets; undefined if no market provides it) */
+    volume?: number;
 
     /** Event URL */
     url: string;
